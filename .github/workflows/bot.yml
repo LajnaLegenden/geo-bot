@@ -45,8 +45,9 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_WORKFLOW_URL: ${{ secrets.SLACK_WORKFLOW_URL }}
           SLACK_SINK: workflow
-          GEO_MAP: world
-          GEO_TIME_LIMIT: "0"
+          GEO_MAP: "6029991c5048850001d572a9"   # geoguessr.com/maps/<id>
+          GEO_TIME_LIMIT: "120"
+          GEO_NO_MOVE: "1"
         run: python -m geobot.main ${{ steps.mode.outputs.mode }}
 
       - name: Commit updated store
