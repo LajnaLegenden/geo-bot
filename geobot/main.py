@@ -1,0 +1,94 @@
+"""Entry point. Two modes:
+
+  python -m geobot.main new        # create today's challenge + post link
+  python -m geobot.main update     # refresh scores for last 7 days + post leaderboard
+
+Run `new` in the morning and `update` in the evening (two cron schedules),
+or run `update` right before `new` the next day — whatever you prefer.
+"""
+from __future__ import annotations
+
+import os
+import sys
+
+from . import slack, store
+from .geoguessr import GeoGuessr
+
+
+def _client() -> GeoGuessr:
+    return GeoGuessr(os.environ["GEO_NCFA"])
+
+
+def _sink() -> str:
+    return os.environ.get("SLACK_SINK", "incoming")
+
+
+def _emit_challenge(url: str) -> None:
+    if _sink() == "workflow":
+        slack.post_workflow(slack.challenge_variables(url))
+    else:
+        slack.post(*slack.challenge_message(url))
+
+
+def _emit_leaderboard(rows: list[dict], days: int = 7) -> None:
+    if _sink() == "workflow":
+        slack.post_workflow(slack.leaderboard_variables(rows, days=days))
+    else:
+        slack.post(*slack.leaderboard_message(rows, days=days))
+
+
+def _emit_cookie_expired() -> None:
+    if _sink() == "workflow":
+        slack.post_workflow(slack.cookie_expired_variables())
+    else:
+        slack.post(*slack.cookie_expired_message())
+
+
+def _ensure_auth(gg: GeoGuessr) -> bool:
+    """Verify the cookie; alert Slack and signal failure if it's dead."""
+    if gg.check_auth():
+        return True
+    _emit_cookie_expired()
+    print("Auth check failed: GEO_NCFA cookie is invalid.", file=sys.stderr)
+    return False
+
+
+def cmd_new() -> None:
+    gg = _client()
+    if not _ensure_auth(gg):
+        sys.exit(1)
+    token = gg.create_challenge(
+        map_id=os.environ.get("GEO_MAP", "world"),
+        time_limit=int(os.environ.get("GEO_TIME_LIMIT", "0")),
+        forbid_moving=os.environ.get("GEO_NO_MOVE", "") == "1",
+    )
+    url = gg.challenge_url(token)
+    store.add_challenge(token, url)
+    _emit_challenge(url)
+    print(f"Created challenge {token}")
+
+
+def cmd_update() -> None:
+    gg = _client()
+    if not _ensure_auth(gg):
+        sys.exit(1)
+    for token in store.recent_tokens(days=7):
+        try:
+            scores = gg.highscores(token)
+            store.upsert_scores(token, scores)
+            print(f"Updated {token}: {len(scores)} scores")
+        except Exception as e:  # keep going if one token fails
+            print(f"Skip {token}: {e}", file=sys.stderr)
+    rows = store.rolling_leaderboard(days=7)
+    _emit_leaderboard(rows, days=7)
+
+
+def main() -> None:
+    if len(sys.argv) < 2 or sys.argv[1] not in {"new", "update"}:
+        print("usage: python -m geobot.main [new|update]", file=sys.stderr)
+        sys.exit(1)
+    {"new": cmd_new, "update": cmd_update}[sys.argv[1]]()
+
+
+if __name__ == "__main__":
+    main()

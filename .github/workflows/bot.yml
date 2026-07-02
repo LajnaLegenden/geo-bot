@@ -1,0 +1,57 @@
+name: geoguessr-bot
+
+on:
+  schedule:
+    # Times are UTC. Adjust to your timezone.
+    - cron: "0 7 * * *"    # 07:00 UTC — create today's challenge
+    - cron: "0 19 * * *"   # 19:00 UTC — refresh scores + post leaderboard
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "new or update"
+        required: true
+        default: "update"
+
+permissions:
+  contents: write   # needed to commit the updated store.json back
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - name: Decide mode
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "mode=${{ github.event.inputs.mode }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "0 7 * * *" ]; then
+            echo "mode=new" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=update" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run bot
+        env:
+          GEO_NCFA: ${{ secrets.GEO_NCFA }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WORKFLOW_URL: ${{ secrets.SLACK_WORKFLOW_URL }}
+          SLACK_SINK: workflow
+          GEO_MAP: world
+          GEO_TIME_LIMIT: "0"
+        run: python -m geobot.main ${{ steps.mode.outputs.mode }}
+
+      - name: Commit updated store
+        run: |
+          git config user.name  "geo-bot"
+          git config user.email "geo-bot@users.noreply.github.com"
+          git add data/store.json
+          git commit -m "update store [skip ci]" || echo "nothing to commit"
+          git push
