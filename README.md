@@ -46,13 +46,26 @@ plainer formatting (no bold, links posted as bare URLs).
 
 Leave `SLACK_SINK` unset or `incoming` to keep using the incoming webhook.
 
-## Config (env vars in the workflow)
+## Maps
 
-| var | default | meaning |
-|-----|---------|---------|
-| `GEO_MAP` | `world` | map id/slug for the challenge |
-| `GEO_TIME_LIMIT` | `0` | seconds per round, 0 = unlimited |
-| `GEO_NO_MOVE` | unset | set to `1` for no-move challenges |
+Map configs live in [`geobot/maps.py`](geobot/maps.py) — the `MAPS` dict, one
+entry per named map. Each entry is the challenge settings (`map_id`,
+`time_limit`, `forbid_moving`, …) plus an optional `weight`:
+
+```python
+MAPS = {
+    "normal": {"map_id": "…", "time_limit": 120, "forbid_moving": True},
+    "fast":   {"map_id": "…", "time_limit": 15,  "forbid_moving": True, "weight": 1.75},
+}
+```
+
+The workflow picks a map by name — one `new` cron per map (see `bot.yml`), or the
+`map` input when you run it manually. Add a map by adding a dict entry and (if you
+want it scheduled) a cron; validate with `python -m geobot.maps`.
+
+`weight` scales that map's scores in the **combined** 7-day leaderboard, so an
+easier map doesn't dominate the raw-score sum (`1.0` if omitted). Raw scores are
+stored unchanged; tuning a weight re-scales the board retroactively.
 
 ## Cookie expiry
 

@@ -1,17 +1,18 @@
 """Entry point. Two modes:
 
-  python -m geobot.main new        # create today's challenge + post link
+  python -m geobot.main new <map>  # create today's challenge for <map> + post link
   python -m geobot.main update     # refresh scores for last 7 days + post leaderboard
 
 Run `new` in the morning and `update` in the evening (two cron schedules),
 or run `update` right before `new` the next day — whatever you prefer.
+Map configs live in geobot/maps.py.
 """
 from __future__ import annotations
 
 import os
 import sys
 
-from . import slack, store
+from . import maps, slack, store
 from .geoguessr import GeoGuessr
 
 
@@ -53,19 +54,21 @@ def _ensure_auth(gg: GeoGuessr) -> bool:
     return False
 
 
-def cmd_new() -> None:
+def cmd_new(map_name: str) -> None:
+    if map_name not in maps.MAPS:
+        print(
+            f"unknown map: {map_name} (have: {', '.join(maps.MAPS)})",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     gg = _client()
     if not _ensure_auth(gg):
         sys.exit(1)
-    token = gg.create_challenge(
-        map_id=os.environ.get("GEO_MAP", "world"),
-        time_limit=int(os.environ.get("GEO_TIME_LIMIT", "0")),
-        forbid_moving=os.environ.get("GEO_NO_MOVE", "") == "1",
-    )
+    token = gg.create_challenge(**maps.create_kwargs(map_name))
     url = gg.challenge_url(token)
-    store.add_challenge(token, url)
+    store.add_challenge(token, url, map_name)
     _emit_challenge(url)
-    print(f"Created challenge {token}")
+    print(f"Created challenge {token} ({map_name})")
 
 
 def cmd_update() -> None:
@@ -84,10 +87,14 @@ def cmd_update() -> None:
 
 
 def main() -> None:
-    if len(sys.argv) < 2 or sys.argv[1] not in {"new", "update"}:
-        print("usage: python -m geobot.main [new|update]", file=sys.stderr)
+    args = sys.argv[1:]
+    if args[:1] == ["new"] and len(args) >= 2:
+        cmd_new(args[1])
+    elif args == ["update"]:
+        cmd_update()
+    else:
+        print("usage: python -m geobot.main new <map> | update", file=sys.stderr)
         sys.exit(1)
-    {"new": cmd_new, "update": cmd_update}[sys.argv[1]]()
 
 
 if __name__ == "__main__":

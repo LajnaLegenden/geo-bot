@@ -2,16 +2,23 @@ name: geoguessr-bot
 
 on:
   schedule:
-    # Times are UTC (GitHub cron has no DST). Set for Swedish summer (CEST, UTC+2).
-    # ponytail: winter (CET, UTC+1) shifts these an hour early; add 1h to each UTC hour to re-align.
-    - cron: "0 8 * * 1-5"    # 08:00 UTC = 10:00 CEST, Mon–Fri — create today's challenge
-    - cron: "0 14 * * 1-5"   # 14:00 UTC = 16:00 CEST, Mon–Fri — refresh scores + post leaderboard
+    # Times are UTC — GitHub cron is always UTC, never your region, and has no DST.
+    # Set for Swedish summer (CEST, UTC+2); winter (CET, UTC+1) shifts these an hour early.
+    # Minutes kept off :00 to dodge the top-of-hour queue — GitHub still runs scheduled
+    # jobs late (minutes to occasionally hours), so these are targets, not guarantees.
+    - cron: "50 7 * * 1-5"    # 07:50 UTC = 09:50 CEST, Mon–Fri — create the "normal" challenge
+    - cron: "24 11 * * 1-5"   # 11:24 UTC = 13:24 CEST, Mon–Fri — create the "fast" challenge
+    - cron: "15 14 * * 1-5"   # 14:15 UTC = 16:15 CEST, Mon–Fri — refresh scores + post leaderboard
   workflow_dispatch:
     inputs:
       mode:
         description: "new or update"
         required: true
         default: "update"
+      map:
+        description: "map name for `new` (see geobot/maps.py)"
+        required: false
+        default: "normal"
 
 permissions:
   contents: write   # needed to commit the updated store.json back
@@ -33,8 +40,13 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "mode=${{ github.event.inputs.mode }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "0 8 * * 1-5" ]; then
+            echo "map=${{ github.event.inputs.map }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "50 7 * * 1-5" ]; then
             echo "mode=new" >> "$GITHUB_OUTPUT"
+            echo "map=normal" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "24 11 * * 1-5" ]; then
+            echo "mode=new" >> "$GITHUB_OUTPUT"
+            echo "map=fast" >> "$GITHUB_OUTPUT"
           else
             echo "mode=update" >> "$GITHUB_OUTPUT"
           fi
@@ -45,10 +57,12 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_WORKFLOW_URL: ${{ secrets.SLACK_WORKFLOW_URL }}
           SLACK_SINK: workflow
-          GEO_MAP: "6029991c5048850001d572a9"   # geoguessr.com/maps/<id>
-          GEO_TIME_LIMIT: "120"
-          GEO_NO_MOVE: "1"
-        run: python -m geobot.main ${{ steps.mode.outputs.mode }}
+        run: |
+          if [ "${{ steps.mode.outputs.mode }}" = "new" ]; then
+            python -m geobot.main new "${{ steps.mode.outputs.map }}"
+          else
+            python -m geobot.main update
+          fi
 
       - name: Commit updated store
         run: |
