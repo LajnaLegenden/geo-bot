@@ -1,14 +1,6 @@
 name: geoguessr-bot
 
 on:
-  schedule:
-    # Times are UTC — GitHub cron is always UTC, never your region, and has no DST.
-    # Set for Swedish summer (CEST, UTC+2); winter (CET, UTC+1) shifts these an hour early.
-    # Minutes kept off :00 to dodge the top-of-hour queue — GitHub still runs scheduled
-    # jobs late (minutes to occasionally hours), so these are targets, not guarantees.
-    - cron: "50 7 * * 1-5"    # 07:50 UTC = 09:50 CEST, Mon–Fri — create the "normal" challenge
-    - cron: "24 11 * * 1-5"   # 11:24 UTC = 13:24 CEST, Mon–Fri — create the "fast" challenge
-    - cron: "15 14 * * 1-5"   # 14:15 UTC = 16:15 CEST, Mon–Fri — refresh scores + post leaderboard
   workflow_dispatch:
     inputs:
       mode:
