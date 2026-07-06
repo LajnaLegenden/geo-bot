@@ -12,6 +12,32 @@ no database, no server.
 
 Edit the cron lines in `.github/workflows/bot.yml` to match your timezone.
 
+## Deploy on Coolify (self-hosted scheduler)
+
+GitHub cron runs scheduled jobs late (often 1–2h). To fire on time, run it on
+Coolify instead — it owns the scheduling. The container just idles; Coolify's
+**Scheduled Tasks** exec the bot inside it on a cron.
+
+1. **New Resource → your repo**, build pack **Dockerfile** (this repo's `Dockerfile`).
+2. **Environment Variables** — set the vars from [`.env.example`](.env.example):
+   `GITHUB_REPO`, `GITHUB_TOKEN` (fine-grained PAT, **Contents: read/write** on this
+   repo — used to pull latest and push `data/store.json` back), `GEO_NCFA`,
+   `SLACK_SINK`, and the matching Slack URL. Also set `TZ=Europe/Stockholm` so the
+   cron times below are local (DST handled automatically).
+3. Deploy. The container clones the repo, wires up git auth, then idles.
+4. **Scheduled Tasks** — add three, each a cron + command:
+
+   | Cron (in `TZ`)   | Command                          | What it does            |
+   |------------------|----------------------------------|-------------------------|
+   | `50 9 * * 1-5`   | `/opt/run.sh new normal`         | create "normal" challenge |
+   | `24 13 * * 1-5`  | `/opt/run.sh new fast`           | create "fast" challenge   |
+   | `15 16 * * 1-5`  | `/opt/run.sh update`             | refresh scores + leaderboard |
+
+State still lives in git: each run pulls latest `data/store.json`, runs, and
+pushes the update back — same model as Actions, just on-time. Disable the GHA
+`schedule:` block so you don't get double runs (keep `workflow_dispatch` for
+manual/backup runs).
+
 ## Setup
 
 1. **Fork/create the repo** and push these files.
