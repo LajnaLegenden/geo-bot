@@ -51,7 +51,7 @@ def challenge_message(url: str) -> tuple[str, list]:
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f":earth_africa: *Today's GeoGuessr challenge*\n<{url}|Play now>  — scores roll up over the last 7 days.",
+                "text": f":earth_africa: *Today's GeoGuessr challenge*\n<{url}|Play now>  — scores count toward this week's board (resets Monday).",
             },
         }
     ]
@@ -68,14 +68,14 @@ def _leaderboard_lines(rows: list[dict], bold: bool = False) -> list[str]:
     return lines
 
 
-def leaderboard_message(rows: list[dict], days: int = 7) -> tuple[str, list]:
+def leaderboard_message(rows: list[dict]) -> tuple[str, list]:
     lines = _leaderboard_lines(rows, bold=True)
     body = "\n".join(lines) if lines else "_No scores yet this week._"
-    text = f"Rolling {days}-day leaderboard"
+    text = "This week's leaderboard"
     blocks = [
         {
             "type": "header",
-            "text": {"type": "plain_text", "text": f"🏆 Rolling {days}-day leaderboard"},
+            "text": {"type": "plain_text", "text": "🏆 This week's leaderboard"},
         },
         {"type": "section", "text": {"type": "mrkdwn", "text": body}},
     ]
@@ -85,14 +85,14 @@ def leaderboard_message(rows: list[dict], days: int = 7) -> tuple[str, list]:
 def challenge_variables(url: str) -> dict:
     return {
         "title": "🌍 Today's GeoGuessr challenge",
-        "body": f"Play now: {url}\nScores roll up over the last 7 days.",
+        "body": f"Play now: {url}\nScores count toward this week's board (resets Monday).",
     }
 
 
-def leaderboard_variables(rows: list[dict], days: int = 7) -> dict:
+def leaderboard_variables(rows: list[dict]) -> dict:
     lines = _leaderboard_lines(rows)
     return {
-        "title": f"🏆 Rolling {days}-day leaderboard",
+        "title": "🏆 This week's leaderboard",
         "body": "\n".join(lines) if lines else "No scores yet this week.",
     }
 

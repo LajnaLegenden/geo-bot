@@ -1,14 +1,19 @@
 # GeoGuessr Slack bot
 
-Posts a daily GeoGuessr challenge to Slack and keeps a rolling 7-day leaderboard.
-Runs entirely on GitHub Actions (free cron) and stores state in a committed JSON file —
-no database, no server.
+Posts a daily GeoGuessr challenge to Slack and keeps a weekly leaderboard that
+resets every Monday. Runs entirely on GitHub Actions (free cron) and stores state
+in a committed JSON file — no database, no server.
 
 ## How it works
 
 - **07:00 UTC** — creates a new challenge, posts the link to Slack.
-- **19:00 UTC** — fetches scores for every challenge in the last 7 days, recomputes the
-  leaderboard, posts it to Slack, and commits the updated scores back to the repo.
+- **19:00 UTC** — fetches scores for every challenge in the last 7 days, recomputes
+  **this week's** leaderboard (scores since Monday), posts it to Slack, and commits
+  the updated scores back to the repo.
+
+The week boundary is the runner's local date: Monday 00:00 in `TZ` on Coolify
+(e.g. Europe/Stockholm), or UTC on GitHub Actions. All scores are kept in
+`data/store.json` forever, so the all-time views on the stats site still work.
 
 Edit the cron lines in `.github/workflows/bot.yml` to match your timezone.
 
@@ -37,6 +42,18 @@ State still lives in git: each run pulls latest `data/store.json`, runs, and
 pushes the update back — same model as Actions, just on-time. Disable the GHA
 `schedule:` block so you don't get double runs (keep `workflow_dispatch` for
 manual/backup runs).
+
+## Stats website
+
+The container also serves a small stats site (this week + all-time leaderboards,
+per-map averages, per-player breakdown) on **port 8080**, refreshed via htmx.
+It reads `data/store.json` server-side and serves **only computed stats** — the
+raw store, `data/` and `.git` are never exposed. Data is as fresh as the last
+`update` run (each run pulls latest before serving).
+
+To reach it, add a **Domain** (or exposed port) for the resource in Coolify
+pointing at container port `8080`. Nothing else to configure. Run it locally with
+`GEO_STORE=data/store.json python -m geobot.web` and open http://localhost:8080.
 
 ## Setup
 

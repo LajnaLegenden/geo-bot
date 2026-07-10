@@ -20,5 +20,8 @@ git remote set-url origin "$REPO_URL"
 git config user.name  "geo-bot"
 git config user.email "geo-bot@users.noreply.github.com"
 
-echo "geobot ready — idling for scheduled tasks."
-exec sleep infinity
+echo "geobot ready — serving stats site, waiting for scheduled tasks."
+# Serving the stats site keeps the container alive; Coolify's scheduled tasks
+# exec /opt/run.sh into it, and each run's `git pull` refreshes the store the
+# server reads. Only computed stats are served — never the raw store.json.
+exec python -m geobot.web

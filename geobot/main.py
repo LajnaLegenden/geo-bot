@@ -31,11 +31,11 @@ def _emit_challenge(url: str) -> None:
         slack.post(*slack.challenge_message(url))
 
 
-def _emit_leaderboard(rows: list[dict], days: int = 7) -> None:
+def _emit_leaderboard(rows: list[dict]) -> None:
     if _sink() == "workflow":
-        slack.post_workflow(slack.leaderboard_variables(rows, days=days))
+        slack.post_workflow(slack.leaderboard_variables(rows))
     else:
-        slack.post(*slack.leaderboard_message(rows, days=days))
+        slack.post(*slack.leaderboard_message(rows))
 
 
 def _emit_cookie_expired() -> None:
@@ -82,8 +82,8 @@ def cmd_update() -> None:
             print(f"Updated {token}: {len(scores)} scores")
         except Exception as e:  # keep going if one token fails
             print(f"Skip {token}: {e}", file=sys.stderr)
-    rows = store.rolling_leaderboard(days=7)
-    _emit_leaderboard(rows, days=7)
+    rows = store.weekly_leaderboard()
+    _emit_leaderboard(rows)
 
 
 def main() -> None:
