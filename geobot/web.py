@@ -46,6 +46,8 @@ PAGE = """<!doctype html>
 <div class="grid">
   <section><h2>🏆 This week</h2>
     <div hx-get="/fragment/weekly" hx-trigger="load, every 60s">…</div></section>
+  <section><h2>🏅 Season points</h2>
+    <div hx-get="/fragment/season" hx-trigger="load, every 60s">…</div></section>
   <section><h2>👑 All-time</h2>
     <div hx-get="/fragment/alltime" hx-trigger="load, every 60s">…</div></section>
   <section><h2>🗺️ Maps</h2>
@@ -69,6 +71,23 @@ def _board_html(rows: list[dict]) -> str:
     return (
         "<table><thead><tr><th>#</th><th>Player</th><th>Points</th>"
         f"<th>Games</th></tr></thead><tbody>{body}</tbody></table>"
+    )
+
+
+def _season_html(rows: list[dict]) -> str:
+    if not rows:
+        return "<p>No scores yet.</p>"
+    body = "".join(
+        f"<tr><td>{MEDALS[i] if i < 3 else f'{i + 1}.'}</td>"
+        f"<td>{html.escape(r['name'])}</td>"
+        f"<td>{r['points']} ({r['points_finished']})</td>"
+        f"<td>{r['weeks_played']}</td></tr>"
+        for i, r in enumerate(rows)
+    )
+    return (
+        "<table><thead><tr><th>#</th><th>Player</th>"
+        "<th title='all weeks (finished weeks only)'>Points</th>"
+        f"<th>Weeks</th></tr></thead><tbody>{body}</tbody></table>"
     )
 
 
@@ -108,6 +127,7 @@ def _players_html(rows: list[dict]) -> str:
 
 FRAGMENTS = {
     "/fragment/weekly": lambda: _board_html(store.weekly_leaderboard()),
+    "/fragment/season": lambda: _season_html(store.season_leaderboard()),
     "/fragment/alltime": lambda: _board_html(store.all_time_leaderboard()),
     "/fragment/maps": lambda: _maps_html(store.map_stats()),
     "/fragment/players": lambda: _players_html(store.player_stats()),

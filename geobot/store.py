@@ -95,7 +95,7 @@ def _weighted_board(scores: list[dict], token_map: dict) -> list[dict]:
     agg: dict[str, dict] = {}
     for s in scores:
         key = s["user_id"] or s["name"]
-        e = agg.setdefault(key, {"name": s["name"], "total": 0.0, "rounds": 0})
+        e = agg.setdefault(key, {"key": key, "name": s["name"], "total": 0.0, "rounds": 0})
         e["total"] += s["score"] * weight(token_map.get(s["token"]))
         e["rounds"] += 1
         e["name"] = s["name"]
@@ -114,6 +114,56 @@ def weekly_leaderboard() -> list[dict]:
         s for s in data["scores"] if date.fromisoformat(s["date"]) >= start
     ]
     return _weighted_board(scores, _token_map(data))
+
+
+PODIUM = [4, 2, 1]  # points for a week's 1st, 2nd, 3rd
+
+
+def season_leaderboard(today: date | None = None) -> list[dict]:
+    """Weekly ranking points summed across weeks: 1st=4, 2nd=2, 3rd=1.
+    'points' counts every week incl. the current (provisional) one;
+    'points_finished' counts only weeks that have already ended.
+    Sorted by 'points' desc.
+    Returns [{'name', 'points', 'points_finished', 'weeks_played'}].
+
+    Each week is ranked by the same weighted board as the weekly leaderboard.
+    # ponytail: exact ties for a podium spot resolve by sort order (stable),
+    # not shared points — weighted totals essentially never tie."""
+    data = _load()
+    token_map = _token_map(data)
+    current = week_start(today)
+
+    weeks: dict[date, list[dict]] = {}  # week-Monday -> [scores]
+    played: dict[str, set] = {}         # player key -> set of week-Mondays scored in
+    names: dict[str, str] = {}          # player key -> latest display name
+    for s in data["scores"]:
+        wk = week_start(date.fromisoformat(s["date"]))
+        weeks.setdefault(wk, []).append(s)
+        key = s["user_id"] or s["name"]
+        played.setdefault(key, set()).add(wk)
+        names[key] = s["name"]
+
+    agg: dict[str, dict] = {}           # player key -> {points, points_finished}
+    for wk, scores in weeks.items():
+        for i, r in enumerate(_weighted_board(scores, token_map)[:3]):
+            e = agg.setdefault(r["key"], {"points": 0, "points_finished": 0})
+            e["points"] += PODIUM[i]
+            if wk != current:
+                e["points_finished"] += PODIUM[i]
+
+    rows = []
+    for key, wks in played.items():
+        e = agg.get(key, {"points": 0, "points_finished": 0})
+        rows.append(
+            {
+                "name": names[key],
+                "points": e["points"],
+                "points_finished": e["points_finished"],
+                "weeks_played": len(wks),
+            }
+        )
+    rows.sort(key=lambda r: r["points"], reverse=True)
+    return rows
 
 
 def all_time_leaderboard() -> list[dict]:
@@ -222,4 +272,28 @@ if __name__ == "__main__":  # python -m geobot.store — self-check
         assert board[0]["name"] == "A" and board[0]["total"] == 2750, board
         ps = {p["name"]: p for p in player_stats()}
         assert ps["A"]["games"] == 2 and ps["A"]["per_map"]["fast"]["best"] == 1000, ps
+
+        # season points: two weeks; today in week of 2026-07-06 (that week is current)
+        _save(
+            {
+                "challenges": [
+                    {"token": "w1", "date": "2026-06-29", "url": "", "map": "normal"},
+                    {"token": "w2", "date": "2026-07-06", "url": "", "map": "normal"},
+                ],
+                "scores": [
+                    # finished week: A 1st, B 2nd, C 3rd
+                    {"date": "2026-06-29", "token": "w1", "user_id": "a", "name": "A", "score": 1000},
+                    {"date": "2026-06-29", "token": "w1", "user_id": "b", "name": "B", "score": 800},
+                    {"date": "2026-06-29", "token": "w1", "user_id": "c", "name": "C", "score": 600},
+                    # current week (provisional): B 1st, A 2nd
+                    {"date": "2026-07-06", "token": "w2", "user_id": "b", "name": "B", "score": 1000},
+                    {"date": "2026-07-06", "token": "w2", "user_id": "a", "name": "A", "score": 900},
+                ],
+            }
+        )
+        sb = {r["name"]: r for r in season_leaderboard(today=date(2026, 7, 8))}
+        assert sb["A"]["points"] == 6 and sb["A"]["points_finished"] == 4, sb  # 4 + 2(prov)
+        assert sb["B"]["points"] == 6 and sb["B"]["points_finished"] == 2, sb  # 2 + 4(prov)
+        assert sb["C"]["points"] == 1 and sb["C"]["points_finished"] == 1, sb
+        assert sb["A"]["weeks_played"] == 2 and sb["C"]["weeks_played"] == 1, sb
     print("store ok")
