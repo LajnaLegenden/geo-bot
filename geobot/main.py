@@ -1,7 +1,8 @@
-"""Entry point. Two modes:
+"""Entry point. Three modes:
 
   python -m geobot.main new <map>  # create today's challenge for <map> + post link
   python -m geobot.main update     # refresh scores for last 7 days + post leaderboard
+  python -m geobot.main backfill    # re-fetch ALL challenges to recover per-round data
 
 Run `new` in the morning and `update` in the evening (two cron schedules),
 or run `update` right before `new` the next day — whatever you prefer.
@@ -77,13 +78,28 @@ def cmd_update() -> None:
         sys.exit(1)
     for token in store.recent_tokens(days=7):
         try:
-            scores = gg.highscores(token)
-            store.upsert_scores(token, scores)
-            print(f"Updated {token}: {len(scores)} scores")
+            result = gg.highscores(token)
+            store.upsert_scores(token, result)
+            print(f"Updated {token}: {len(result['players'])} scores")
         except Exception as e:  # keep going if one token fails
             print(f"Skip {token}: {e}", file=sys.stderr)
     rows = store.weekly_leaderboard()
     _emit_leaderboard(rows)
+
+
+def cmd_backfill() -> None:
+    """Re-fetch every stored challenge to recover per-round data (guesses,
+    countries, avatars) for old games. One-shot, manual, no Slack post."""
+    gg = _client()
+    if not _ensure_auth(gg):
+        sys.exit(1)
+    for token in store.all_tokens():
+        try:
+            result = gg.highscores(token)
+            store.upsert_scores(token, result)
+            print(f"Backfilled {token}: {len(result['players'])} scores")
+        except Exception as e:
+            print(f"Skip {token}: {e}", file=sys.stderr)
 
 
 def main() -> None:
@@ -92,8 +108,10 @@ def main() -> None:
         cmd_new(args[1])
     elif args == ["update"]:
         cmd_update()
+    elif args == ["backfill"]:
+        cmd_backfill()
     else:
-        print("usage: python -m geobot.main new <map> | update", file=sys.stderr)
+        print("usage: python -m geobot.main new <map> | update | backfill", file=sys.stderr)
         sys.exit(1)
 
 

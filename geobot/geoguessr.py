@@ -53,24 +53,49 @@ class GeoGuessr:
     def challenge_url(token: str) -> str:
         return f"https://www.geoguessr.com/challenge/{token}"
 
-    def highscores(self, token: str, limit: int = 50) -> list[dict]:
-        """Return [{'name', 'user_id', 'score'}] for everyone who has played."""
+    def highscores(self, token: str, limit: int = 50) -> dict:
+        """Return {'countries': [cc×5], 'players': [{...}]} for everyone who played.
+
+        `countries` are the actual-location country codes per round (same for all
+        players in a challenge). Each player carries their per-round `guesses`
+        (points/distance/time/miss) and avatar `pin`, plus the total `score`.
+        """
         r = self.s.get(
             f"{BASE}/v3/results/highscores/{token}",
             params={"friends": "false", "limit": limit},
         )
         r.raise_for_status()
-        out = []
-        for item in r.json().get("items", []):
-            game = item.get("game", {})
-            player = game.get("player", {})
+        items = r.json().get("items", [])
+
+        # rounds are identical across players; read the actual-location country
+        # codes once from the first item (streakLocationCode is set even on world).
+        rounds = items[0].get("game", {}).get("rounds", []) if items else []
+        countries = [(rd.get("streakLocationCode") or "").lower() or None for rd in rounds]
+
+        players = []
+        for item in items:
+            player = item.get("game", {}).get("player", {})
             amount = player.get("totalScore", {}).get("amount", 0)
-            out.append(
+            guesses = [
+                {
+                    "pts": int(g.get("roundScoreInPoints") or 0),
+                    "dist": g.get("distanceInMeters"),
+                    "t": g.get("time"),
+                    "miss": bool(
+                        (g.get("timedOut") or g.get("skippedRound"))
+                        and not g.get("timedOutWithGuess")
+                    ),
+                }
+                for g in player.get("guesses", [])
+            ]
+            players.append(
                 {
                     "name": player.get("nick", "unknown"),
                     "user_id": player.get("id", ""),
                     # ponytail: API returns amount as a string; coerce so the store stays numeric
                     "score": int(amount) if amount else 0,
+                    "pin": player.get("pin", {}).get("url"),
+                    "guesses": guesses,
                 }
             )
-        return out
+        return {"countries": countries, "players": players}

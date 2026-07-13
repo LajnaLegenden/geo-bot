@@ -3,10 +3,15 @@ so state persists across runs without any external database.
 
 Schema:
 {
-  "challenges": [{"token": "...", "date": "2026-06-23", "url": "...", "map": "normal"}],
+  "challenges": [{"token": "...", "date": "2026-06-23", "url": "...", "map": "normal",
+                  "countries": ["us", "fr", ...]}],  # actual-location code per round (5)
   "scores":     [{"date": "2026-06-23", "token": "...", "user_id": "...",
-                  "name": "...", "score": 1234}]
+                  "name": "...", "score": 1234, "pin": "https://.../avatar.png",
+                  "guesses": [{"pts": 5000, "dist": 12.3, "t": 42, "miss": false}, ...]}]
 }
+
+`countries`, `pin`, `guesses` are added by newer fetches; rows/challenges predating
+them simply lack the keys, and the stat functions below skip what's missing.
 """
 from __future__ import annotations
 
@@ -53,6 +58,11 @@ def recent_tokens(days: int = 7) -> list[str]:
     ]
 
 
+def all_tokens() -> list[str]:
+    """Every challenge token, oldest first — the backfill's fetch set."""
+    return [c["token"] for c in _load()["challenges"]]
+
+
 def date_for_token(token: str) -> str | None:
     data = _load()
     for c in data["challenges"]:
@@ -61,12 +71,22 @@ def date_for_token(token: str) -> str | None:
     return None
 
 
-def upsert_scores(token: str, scores: list[dict]) -> None:
-    """Replace stored scores for a token with the latest fetched set."""
+def upsert_scores(token: str, result: dict) -> None:
+    """Replace stored scores for a token with the latest fetched set.
+
+    `result` is `GeoGuessr.highscores`'s dict: {'countries': [...], 'players': [...]}.
+    The per-round actual-location `countries` land on the challenge entry (shared
+    across players); per-player `pin` + `guesses` land on each score row.
+    """
     data = _load()
     d = date_for_token(token) or date.today().isoformat()
+    countries = result.get("countries") or []
+    if countries:  # don't wipe good data if a fetch came back empty
+        for c in data["challenges"]:
+            if c["token"] == token:
+                c["countries"] = countries
     data["scores"] = [s for s in data["scores"] if s["token"] != token]
-    for s in scores:
+    for s in result["players"]:
         data["scores"].append(
             {
                 "date": d,
@@ -74,6 +94,8 @@ def upsert_scores(token: str, scores: list[dict]) -> None:
                 "user_id": s["user_id"],
                 "name": s["name"],
                 "score": s["score"],
+                "pin": s.get("pin"),
+                "guesses": s.get("guesses", []),
             }
         )
     _save(data)
@@ -202,24 +224,43 @@ def map_stats() -> list[dict]:
 
 def player_stats() -> list[dict]:
     """Per-player raw-score stats, sorted by games desc:
-    [{'name', 'games', 'avg', 'best', 'per_map': {map: {games, avg, best}}}]."""
+    [{'name', 'games', 'avg', 'best', 'per_map': {...}, 'pin',
+      'avg_dist', 'perfects', 'chokes', 'avg_time'}].
+
+    The guess-derived fields (avg_dist/perfects/chokes/avg_time) come from stored
+    per-round `guesses`; rows predating guess capture contribute nothing to them."""
     data = _load()
     token_map = {c["token"]: (c.get("map") or "normal") for c in data["challenges"]}
     by: dict[str, dict] = {}
     for s in data["scores"]:
         key = s["user_id"] or s["name"]
         p = by.setdefault(
-            key, {"name": s["name"], "games": 0, "_total": 0, "best": 0, "_maps": {}}
+            key,
+            {
+                "name": s["name"], "games": 0, "_total": 0, "best": 0, "_maps": {},
+                "pin": None, "_dist": 0.0, "_dist_n": 0, "_t": 0, "_t_n": 0,
+                "perfects": 0, "chokes": 0,
+            },
         )
         p["name"] = s["name"]
         p["games"] += 1
         p["_total"] += s["score"]
         p["best"] = max(p["best"], s["score"])
+        p["pin"] = p["pin"] or s.get("pin")
         m = token_map.get(s["token"], "normal")
         mm = p["_maps"].setdefault(m, {"games": 0, "_total": 0, "best": 0})
         mm["games"] += 1
         mm["_total"] += s["score"]
         mm["best"] = max(mm["best"], s["score"])
+        for g in s.get("guesses") or []:
+            if g.get("pts") == 5000:
+                p["perfects"] += 1
+            if g.get("miss"):
+                p["chokes"] += 1
+            if g.get("dist") is not None:
+                p["_dist"] += g["dist"]; p["_dist_n"] += 1
+            if g.get("t") is not None:
+                p["_t"] += g["t"]; p["_t_n"] += 1
     rows = []
     for p in sorted(by.values(), key=lambda p: p["games"], reverse=True):
         per_map = {
@@ -237,8 +278,98 @@ def player_stats() -> list[dict]:
                 "avg": round(p["_total"] / p["games"]),
                 "best": p["best"],
                 "per_map": per_map,
+                "pin": p["pin"],
+                "avg_dist": round(p["_dist"] / p["_dist_n"]) if p["_dist_n"] else 0,
+                "perfects": p["perfects"],
+                "chokes": p["chokes"],
+                "avg_time": round(p["_t"] / p["_t_n"]) if p["_t_n"] else 0,
             }
         )
+    return rows
+
+
+def player_countries(min_rounds: int = 2) -> list[dict]:
+    """Each player's best & worst country by average round points, joining their
+    per-round `guesses` to the round's actual-location country:
+    [{'name', 'best_cc', 'best_avg', 'worst_cc', 'worst_avg', 'rounds'}].
+
+    Only countries a player has seen >= `min_rounds` times qualify; players with
+    none qualifying are omitted. `min_rounds` is the calibration knob — data is
+    sparse now (few rounds per country), so keep it low and raise it as games pile up."""
+    data = _load()
+    countries_by_token = {
+        c["token"]: c.get("countries") or [] for c in data["challenges"]
+    }
+    by: dict[str, dict] = {}  # playerkey -> {name, cc -> [sum, n]}
+    for s in data["scores"]:
+        ccs = countries_by_token.get(s["token"], [])
+        key = s["user_id"] or s["name"]
+        p = by.setdefault(key, {"name": s["name"], "cc": {}})
+        p["name"] = s["name"]
+        for i, g in enumerate(s.get("guesses") or []):
+            cc = ccs[i] if i < len(ccs) else None
+            if not cc:
+                continue
+            acc = p["cc"].setdefault(cc, [0, 0])
+            acc[0] += g.get("pts") or 0
+            acc[1] += 1
+    rows = []
+    for p in by.values():
+        avgs = {
+            cc: (total / n, n)
+            for cc, (total, n) in p["cc"].items()
+            if n >= min_rounds
+        }
+        if not avgs:
+            continue
+        best = max(avgs, key=lambda cc: avgs[cc][0])
+        worst = min(avgs, key=lambda cc: avgs[cc][0])
+        rows.append(
+            {
+                "name": p["name"],
+                "best_cc": best, "best_avg": round(avgs[best][0]),
+                "worst_cc": worst, "worst_avg": round(avgs[worst][0]),
+                "rounds": sum(n for _, n in p["cc"].values()),
+            }
+        )
+    rows.sort(key=lambda r: r["name"].lower())
+    return rows
+
+
+def round_wins() -> list[dict]:
+    """Per-round head-to-head, aggregated: how often each player had the strictly
+    highest score on a round. [{'name', 'wins', 'rounds'}] sorted by wins desc.
+    Ties for the top score on a round award nobody."""
+    data = _load()
+    by_token: dict[str, list[dict]] = {}
+    for s in data["scores"]:
+        by_token.setdefault(s["token"], []).append(s)
+    wins: dict[str, int] = {}
+    rounds: dict[str, int] = {}
+    names: dict[str, str] = {}
+    for rows in by_token.values():
+        # widest guess list decides how many rounds this challenge had
+        n_rounds = max((len(r.get("guesses") or []) for r in rows), default=0)
+        for i in range(n_rounds):
+            contenders = []  # (key, pts)
+            for r in rows:
+                gs = r.get("guesses") or []
+                if i < len(gs):
+                    key = r["user_id"] or r["name"]
+                    names[key] = r["name"]
+                    rounds[key] = rounds.get(key, 0) + 1
+                    contenders.append((key, gs[i].get("pts") or 0))
+            if not contenders:
+                continue
+            top = max(pts for _, pts in contenders)
+            leaders = [k for k, pts in contenders if pts == top]
+            if len(leaders) == 1:
+                wins[leaders[0]] = wins.get(leaders[0], 0) + 1
+    rows = [
+        {"name": names[k], "wins": wins.get(k, 0), "rounds": rounds[k]}
+        for k in rounds
+    ]
+    rows.sort(key=lambda r: r["wins"], reverse=True)
     return rows
 
 
@@ -296,4 +427,48 @@ if __name__ == "__main__":  # python -m geobot.store — self-check
         assert sb["B"]["points"] == 6 and sb["B"]["points_finished"] == 2, sb  # 2 + 4(prov)
         assert sb["C"]["points"] == 1 and sb["C"]["points_finished"] == 1, sb
         assert sb["A"]["weeks_played"] == 2 and sb["C"]["weeks_played"] == 1, sb
+
+    # guess-derived stats: per-player aggregates, countries, round wins, and
+    # graceful degradation on a legacy row that has no guesses/countries.
+    with tempfile.TemporaryDirectory() as d:
+        STORE_PATH = os.path.join(d, "store.json")
+
+        def _g(pts, dist, t, miss=False):
+            return {"pts": pts, "dist": dist, "t": t, "miss": miss}
+
+        _save(
+            {
+                "challenges": [
+                    {"token": "g1", "date": "2026-07-06", "url": "", "map": "normal",
+                     "countries": ["us", "fr", "us", "fr", "de"]},
+                    {"token": "g0", "date": "2026-07-06", "url": "", "map": "normal"},  # legacy
+                ],
+                "scores": [
+                    {"date": "2026-07-06", "token": "g1", "user_id": "a", "name": "A", "score": 12000,
+                     "pin": "http://x/a.png",
+                     "guesses": [_g(5000, 0, 10), _g(1000, 500, 20), _g(4000, 100, 30),
+                                 _g(2000, 300, 15), _g(0, 20000, 0, True)]},
+                    {"date": "2026-07-06", "token": "g1", "user_id": "b", "name": "B", "score": 11000,
+                     "guesses": [_g(4000, 50, 12), _g(3000, 200, 22), _g(3000, 150, 25),
+                                 _g(1000, 400, 18), _g(0, 9000, 0, True)]},
+                    {"date": "2026-07-06", "token": "g0", "user_id": "c", "name": "C", "score": 3000},  # no guesses
+                ],
+            }
+        )
+        ps = {p["name"]: p for p in player_stats()}
+        assert ps["A"]["perfects"] == 1 and ps["A"]["chokes"] == 1, ps["A"]
+        assert ps["A"]["avg_dist"] == round(20900 / 5) and ps["A"]["avg_time"] == 15, ps["A"]
+        assert ps["A"]["pin"] == "http://x/a.png", ps["A"]
+        # legacy row still aggregates; guess-derived fields are 0, no crash
+        assert ps["C"]["games"] == 1 and ps["C"]["perfects"] == 0 and ps["C"]["avg_dist"] == 0, ps["C"]
+
+        pc = {r["name"]: r for r in player_countries()}  # min_rounds=2 -> us & fr qualify, de dropped
+        assert pc["A"]["best_cc"] == "us" and pc["A"]["best_avg"] == 4500, pc["A"]
+        assert pc["A"]["worst_cc"] == "fr" and pc["A"]["worst_avg"] == 1500, pc["A"]
+        assert "C" not in pc, pc  # legacy row has no country data
+
+        rw = {r["name"]: r for r in round_wins()}
+        assert rw["A"]["wins"] == 3 and rw["B"]["wins"] == 1, rw  # r4 (0 vs 0) ties -> nobody
+        assert rw["A"]["rounds"] == 5 and rw["B"]["rounds"] == 5, rw
+        assert "C" not in rw, rw  # no per-round data
     print("store ok")

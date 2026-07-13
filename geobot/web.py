@@ -4,6 +4,9 @@ Reads store.json *server-side* and serves only computed stats as HTML fragments
 (htmx polls them). The raw store, `data/`, `.git` and source files are never
 served — only the handful of routes below respond, everything else is 404.
 
+One exception to "no external resources": player avatar `<img>` tags point at
+GeoGuessr's CDN, so the browser fetches those images directly from GeoGuessr.
+
 Run: `python -m geobot.web` (binds 0.0.0.0:$PORT, default 8080).
 """
 from __future__ import annotations
@@ -33,11 +36,13 @@ PAGE = """<!doctype html>
   h2 { margin: 0 0 .5rem; font-size: 1.1rem; }
   .grid { display: grid; gap: 1.5rem; grid-template-columns: 1fr 1fr; }
   section { min-width: 0; }
+  .wide { grid-column: 1 / -1; }  /* full-width row for the many-column Players table */
   table { border-collapse: collapse; width: 100%; font-size: .9rem; }
   th, td { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid #8884; }
   th { font-weight: 600; cursor: pointer; user-select: none; }
   td:nth-child(n+3), th:nth-child(n+3) { text-align: right; }
   .per-map { text-align: left; color: #8889; font-size: .8rem; }
+  .hint { color: #8889; font-size: .8rem; margin: -.25rem 0 .5rem; }
   @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -47,13 +52,24 @@ PAGE = """<!doctype html>
   <section><h2>🏆 This week</h2>
     <div hx-get="/fragment/weekly" hx-trigger="load, every 60s">…</div></section>
   <section><h2>🏅 Season points</h2>
+    <p class="hint">Weekly podium points (1st = 4, 2nd = 2, 3rd = 1) summed across weeks ·
+      Live counts the ongoing week, Stable is finished weeks only</p>
     <div hx-get="/fragment/season" hx-trigger="load, every 60s">…</div></section>
   <section><h2>👑 All-time</h2>
     <div hx-get="/fragment/alltime" hx-trigger="load, every 60s">…</div></section>
   <section><h2>🗺️ Maps</h2>
     <div hx-get="/fragment/maps" hx-trigger="load, every 60s">…</div></section>
-  <section><h2>🧑 Players</h2>
+  <section class="wide"><h2>🧑 Players</h2>
+    <p class="hint">Dist off = avg distance from the right spot · Perfects = 5000-pt rounds ·
+      Chokes = timed-out / skipped rounds · Avg time = seconds per round</p>
     <div hx-get="/fragment/players" hx-trigger="load, every 60s">…</div></section>
+  <section><h2>🌍 Best / worst countries</h2>
+    <p class="hint">Each player's strongest &amp; weakest country by average round score
+      (min 2 rounds seen there)</p>
+    <div hx-get="/fragment/countries" hx-trigger="load, every 60s">…</div></section>
+  <section><h2>⚔️ Round wins</h2>
+    <p class="hint">Rounds where you outscored everyone else who played that challenge</p>
+    <div hx-get="/fragment/roundwins" hx-trigger="load, every 60s">…</div></section>
 </div>
 <script>
 // Click any column header to sort its table. Re-applies after each htmx poll
@@ -112,13 +128,15 @@ def _season_html(rows: list[dict]) -> str:
     body = "".join(
         f"<tr><td>{MEDALS[i] if i < 3 else f'{i + 1}.'}</td>"
         f"<td>{html.escape(r['name'])}</td>"
-        f"<td>{r['points']} ({r['points_finished']})</td>"
+        f"<td>{r['points']}</td>"
+        f"<td>{r['points_finished']}</td>"
         f"<td>{r['weeks_played']}</td></tr>"
         for i, r in enumerate(rows)
     )
     return (
         "<table><thead><tr><th>#</th><th>Player</th>"
-        "<th title='all weeks (finished weeks only)'>Points</th>"
+        "<th title='includes the ongoing (provisional) week'>Live</th>"
+        "<th title='finished weeks only'>Stable</th>"
         f"<th>Weeks</th></tr></thead><tbody>{body}</tbody></table>"
     )
 
@@ -137,6 +155,24 @@ def _maps_html(rows: list[dict]) -> str:
     )
 
 
+# GeoGuessr avatars: pin.url is a relative path (e.g. "pin/<hash>.png") served
+# through their image-resize proxy. Social-login avatars come back absolute.
+PIN_BASE = "https://www.geoguessr.com/images/resize:auto:96:96/gravity:ce/plain/"
+
+
+def _avatar_url(pin: str) -> str:
+    return pin if pin.startswith("http") else PIN_BASE + pin
+
+
+def _flag(cc: str) -> str:
+    """ISO-3166 alpha-2 country code -> flag emoji (regional-indicator letters).
+    Falls back to the uppercased code for anything that isn't 2 letters."""
+    cc = (cc or "").lower()
+    if len(cc) != 2 or not cc.isalpha():
+        return cc.upper()
+    return "".join(chr(0x1F1E6 + ord(c) - 97) for c in cc)
+
+
 def _players_html(rows: list[dict]) -> str:
     if not rows:
         return "<p>No players yet.</p>"
@@ -146,14 +182,61 @@ def _players_html(rows: list[dict]) -> str:
             f"{html.escape(m)} {v['avg']:,} avg ({v['games']})"
             for m, v in r["per_map"].items()
         )
+        avatar = (
+            f"<img src='{html.escape(_avatar_url(r['pin']))}' width='20' height='20' "
+            f"style='vertical-align:middle;border-radius:50%;margin-right:.4rem' "
+            f"onerror='this.style.display=&quot;none&quot;'>"
+            if r.get("pin") else ""
+        )
         body += (
-            f"<tr><td>{html.escape(r['name'])}</td><td>{r['games']}</td>"
+            f"<tr><td>{avatar}{html.escape(r['name'])}</td><td>{r['games']}</td>"
             f"<td>{r['avg']:,}</td><td>{r['best']:,}</td>"
+            f"<td>{round(r['avg_dist'] / 1000):,} km</td>"
+            f"<td>{r['perfects']}</td><td>{r['chokes']}</td>"
+            f"<td>{r['avg_time']}s</td>"
             f"<td class='per-map'>{splits}</td></tr>"
         )
     return (
-        "<table><thead><tr><th>Player</th><th>Games</th><th>Avg</th>"
-        f"<th>Best</th><th>Per map</th></tr></thead><tbody>{body}</tbody></table>"
+        "<table><thead><tr><th>Player</th><th>Games</th><th>Avg</th><th>Best</th>"
+        "<th title='avg distance off'>Dist off</th>"
+        "<th title='5000-point rounds'>Perfects</th>"
+        "<th title='timed-out / skipped rounds'>Chokes</th>"
+        "<th title='avg time per round'>Avg time</th>"
+        f"<th>Per map</th></tr></thead><tbody>{body}</tbody></table>"
+    )
+
+
+def _countries_html(rows: list[dict]) -> str:
+    if not rows:
+        return "<p>No round data yet.</p>"
+    body = "".join(
+        f"<tr><td>{html.escape(r['name'])}</td>"
+        f"<td>{_flag(r['best_cc'])} {r['best_cc'].upper()} ({r['best_avg']:,})</td>"
+        f"<td>{_flag(r['worst_cc'])} {r['worst_cc'].upper()} ({r['worst_avg']:,})</td>"
+        f"<td>{r['rounds']}</td></tr>"
+        for r in rows
+    )
+    return (
+        "<table><thead><tr><th>Player</th>"
+        "<th title='highest avg round score'>Best</th>"
+        "<th title='lowest avg round score'>Worst</th>"
+        f"<th>Rounds</th></tr></thead><tbody>{body}</tbody></table>"
+    )
+
+
+def _roundwins_html(rows: list[dict]) -> str:
+    if not rows:
+        return "<p>No round data yet.</p>"
+    body = "".join(
+        f"<tr><td>{MEDALS[i] if i < 3 else f'{i + 1}.'}</td>"
+        f"<td>{html.escape(r['name'])}</td>"
+        f"<td>{r['wins']}</td><td>{r['rounds']}</td></tr>"
+        for i, r in enumerate(rows)
+    )
+    return (
+        "<table><thead><tr><th>#</th><th>Player</th>"
+        "<th title='rounds where you had the top score'>Wins</th>"
+        f"<th>Rounds</th></tr></thead><tbody>{body}</tbody></table>"
     )
 
 
@@ -163,6 +246,8 @@ FRAGMENTS = {
     "/fragment/alltime": lambda: _board_html(store.all_time_leaderboard()),
     "/fragment/maps": lambda: _maps_html(store.map_stats()),
     "/fragment/players": lambda: _players_html(store.player_stats()),
+    "/fragment/countries": lambda: _countries_html(store.player_countries()),
+    "/fragment/roundwins": lambda: _roundwins_html(store.round_wins()),
 }
 
 
