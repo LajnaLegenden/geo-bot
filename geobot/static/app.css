@@ -1,0 +1,93 @@
+/* GeoGuessr-flavored dark theme: near-black bg, signature green accent,
+   bold uppercase display headings, card panels. Plain CSS, no framework. */
+:root {
+  --bg: #0e1017;
+  --surface: #1a1d29;
+  --surface-2: #22263380;
+  --border: #2b2f3d;
+  --text: #eef0f6;
+  --muted: #9aa1b2;
+  --green: #6cb928;
+  --green-hi: #7ed13a;
+  --danger: #e0533d;
+  --radius: 10px;
+  --font: system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--green-hi); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* top bar */
+.topbar {
+  background: #0a0c12;
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 10;
+}
+.topbar-inner {
+  max-width: 1000px; margin: 0 auto; padding: .7rem 1rem;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.brand {
+  color: var(--text); font-weight: 800; font-size: 1.15rem;
+  letter-spacing: .08em; text-decoration: none;
+}
+.brand span { color: var(--green); }
+.topnav { display: flex; gap: .75rem; align-items: center; }
+
+/* layout */
+.container { max-width: 1000px; margin: 2rem auto; padding: 0 1rem; }
+.page-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; margin: 0 0 1rem; }
+h2 { font-size: 1.1rem; font-weight: 700; letter-spacing: .03em; margin: 0 0 .5rem; }
+.muted { color: var(--muted); }
+
+/* cards */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.25rem 1.5rem; margin-bottom: 1.25rem;
+}
+.card.empty { color: var(--muted); text-align: center; padding: 2rem; }
+.auth-card { max-width: 380px; margin: 3rem auto; }
+
+/* forms */
+label { display: block; margin-bottom: .9rem; font-size: .85rem; color: var(--muted); font-weight: 600; }
+input, select, textarea {
+  display: block; width: 100%; margin-top: .35rem; padding: .55rem .7rem;
+  background: #11141d; color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; font: inherit;
+}
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--green); }
+
+/* buttons */
+.btn, .btn-ghost {
+  font: inherit; font-weight: 700; letter-spacing: .03em; text-transform: uppercase;
+  border-radius: 8px; padding: .55rem 1.1rem; cursor: pointer; border: 1px solid transparent;
+}
+.btn { background: var(--green); color: #0a0c12; }
+.btn:hover { background: var(--green-hi); }
+.btn-ghost { background: transparent; color: var(--muted); border-color: var(--border); }
+.btn-ghost:hover { color: var(--text); border-color: var(--muted); }
+.inline { display: inline; margin: 0; }
+.inline label { display: none; }
+
+/* flash */
+.flash {
+  background: #2a1c18; border: 1px solid var(--danger); color: #ffb9ab;
+  border-radius: 8px; padding: .5rem 1rem; margin-bottom: 1rem;
+}
+.flash p { margin: .2rem 0; }
+
+/* tables (reused by stats pages) */
+table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--border); }
+th { font-weight: 700; cursor: pointer; user-select: none; color: var(--muted); }
+td:nth-child(n+3), th:nth-child(n+3) { text-align: right; }

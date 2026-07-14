@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · GeoBot{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Your leagues</h1>
+</div>
+<p class="muted">Signed in as {{ user["email"] }}.</p>
+<div class="card empty">
+  <p>No leagues yet — league &amp; game setup lands in the next step.</p>
+</div>
+{% endblock %}
