@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}{{ league['name'] }} · GeoBot{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{{ league['name'] }}</h1>
+  <div class="head-actions">
+    <a class="btn-ghost" href="{{ url_for('leagues.edit', league_id=league['id']) }}">Edit</a>
+    <a class="btn" href="{{ url_for('games.new', league_id=league['id']) }}">Add game</a>
+  </div>
+</div>
+
+<div class="card">
+  <p><strong>Results:</strong> {{ cron.describe(league['cron_results']) }} · {{ league['tz'] }}</p>
+  <p><strong>Stats:</strong>
+    {% if league['public_slug'] %}public at <code>/s/{{ league['public_slug'] }}</code>{% else %}private{% endif %}
+  </p>
+</div>
+
+<div class="card">
+  <h2>Games</h2>
+  {% if games %}
+  <table>
+    <thead><tr><th>Name</th><th>Map</th><th>Weight</th><th>Time</th><th>New challenge</th><th></th></tr></thead>
+    <tbody>
+    {% for g in games %}
+      <tr>
+        <td>{{ g['name'] }}</td>
+        <td>{{ g['map_name'] }}</td>
+        <td>{{ '%.2f'|format(g['weight']) }}</td>
+        <td>{{ g['time_limit'] }}s</td>
+        <td>{{ cron.describe(g['cron_challenge']) }}</td>
+        <td style="text-align:right"><a href="{{ url_for('games.edit', league_id=league['id'], game_id=g['id']) }}">Edit</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">No games yet — add one to start posting challenges.</p>{% endif %}
+</div>
+
+<div class="card">
+  <form method="post" action="{{ url_for('leagues.delete', league_id=league['id']) }}"
+        onsubmit="return confirm('Delete this league and all its challenges/scores?')">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <button class="btn-ghost" type="submit">Delete league</button>
+  </form>
+</div>
+{% endblock %}

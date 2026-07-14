@@ -1,11 +1,23 @@
 {% extends "base.html" %}
-{% block title %}Dashboard · GeoBot{% endblock %}
+{% block title %}Leagues · GeoBot{% endblock %}
 {% block content %}
 <div class="page-head">
   <h1>Your leagues</h1>
+  <a class="btn" href="{{ url_for('leagues.new') }}">New league</a>
 </div>
-<p class="muted">Signed in as {{ user["email"] }}.</p>
+{% if leagues %}
+<div class="league-grid">
+  {% for l in leagues %}
+  <a class="card league-card" href="{{ url_for('leagues.detail', league_id=l['id']) }}">
+    <h2>{{ l['name'] }}</h2>
+    <p class="muted">{% if l['public_slug'] %}Public · /s/{{ l['public_slug'] }}{% else %}Private{% endif %}</p>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
 <div class="card empty">
-  <p>No leagues yet — league &amp; game setup lands in the next step.</p>
+  <p>No leagues yet. Add a <a href="{{ url_for('credentials.index') }}">credential</a> and a
+     <a href="{{ url_for('maps.index') }}">map</a>, then create your first league.</p>
 </div>
+{% endif %}
 {% endblock %}

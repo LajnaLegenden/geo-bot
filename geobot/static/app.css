@@ -91,3 +91,20 @@ table { border-collapse: collapse; width: 100%; font-size: .92rem; }
 th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--border); }
 th { font-weight: 700; cursor: pointer; user-select: none; color: var(--muted); }
 td:nth-child(n+3), th:nth-child(n+3) { text-align: right; }
+
+/* config UI extras */
+.head-actions { display: flex; gap: .6rem; }
+.league-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.league-card { display: block; text-decoration: none; color: var(--text); transition: border-color .1s; }
+.league-card:hover { border-color: var(--green); text-decoration: none; }
+.league-card h2 { margin: 0 0 .3rem; }
+
+fieldset.days { border: 1px solid var(--border); border-radius: 8px; padding: .6rem .9rem; margin-bottom: .9rem; }
+fieldset.days legend { color: var(--muted); font-size: .8rem; font-weight: 600; padding: 0 .3rem; }
+label.chk { display: inline-flex; align-items: center; gap: .35rem; margin: .2rem .8rem .2rem 0; color: var(--text); font-weight: 500; }
+label.chk input { width: auto; margin: 0; }
+
+.map-preview { display: flex; gap: 1.25rem; align-items: flex-start; margin-top: 1rem;
+  padding-top: 1rem; border-top: 1px solid var(--border); }
+.map-preview form { flex: 1; }
+code { background: #11141d; border: 1px solid var(--border); border-radius: 5px; padding: .1rem .4rem; }

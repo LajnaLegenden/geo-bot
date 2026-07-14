@@ -12,7 +12,7 @@ import secrets
 from flask import Flask, abort, render_template, request, session
 
 from . import db, queries
-from .blueprints import auth
+from .blueprints import auth, credentials, games, leagues, maps
 from .security import login_required
 
 
@@ -41,11 +41,18 @@ def create_app() -> Flask:
         return {"csrf_token": token}
 
     app.register_blueprint(auth.bp)
+    app.register_blueprint(credentials.bp)
+    app.register_blueprint(maps.bp)
+    app.register_blueprint(leagues.bp)
+    app.register_blueprint(games.bp)
 
     @app.route("/")
     @login_required
     def dashboard():
         user = queries.get_user(db.conn(), session["uid"])
-        return render_template("dashboard.html", user=user)
+        return render_template(
+            "dashboard.html", user=user,
+            leagues=queries.list_leagues(db.conn(), session["uid"]),
+        )
 
     return app

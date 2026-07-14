@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Maps · GeoBot{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Maps</h1></div>
+
+<div class="card">
+  <h2>Add a map</h2>
+  <p class="muted">Paste a GeoGuessr map URL or ID, validate, then save.</p>
+  <form hx-post="{{ url_for('maps.resolve') }}" hx-target="#preview" hx-swap="innerHTML">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <label>Map URL or ID<input name="pasted" placeholder="https://www.geoguessr.com/maps/…"></label>
+    <button class="btn" type="submit">Validate</button>
+  </form>
+  <div id="preview"></div>
+</div>
+
+<div class="card">
+  <h2>Saved maps</h2>
+  {% if maps %}
+  <table>
+    <thead><tr><th>Name</th><th>Map ID</th><th></th></tr></thead>
+    <tbody>
+    {% for m in maps %}
+      <tr>
+        <td>
+          {% if m['thumbnail'] %}<img src="{{ m['thumbnail'] }}" width="28" height="28"
+             style="border-radius:4px;vertical-align:middle;margin-right:.4rem"
+             onerror="this.style.display='none'">{% endif %}{{ m['name'] }}
+        </td>
+        <td>{{ m['map_id'] }}</td>
+        <td style="text-align:right">
+          <form method="post" action="{{ url_for('maps.delete', map_pk=m['id']) }}" class="inline"
+                onsubmit="return confirm('Delete this map?')">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <button class="btn-ghost" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">No maps yet.</p>{% endif %}
+</div>
+{% endblock %}

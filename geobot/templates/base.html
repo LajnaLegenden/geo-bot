@@ -13,6 +13,9 @@
     <a class="brand" href="{{ url_for('dashboard') if session.get('uid') else url_for('auth.login') }}">🌍 GEO<span>BOT</span></a>
     <nav class="topnav">
       {% if session.get('uid') %}
+      <a href="{{ url_for('dashboard') }}">Leagues</a>
+      <a href="{{ url_for('credentials.index') }}">Credentials</a>
+      <a href="{{ url_for('maps.index') }}">Maps</a>
       <form method="post" action="{{ url_for('auth.logout') }}" class="inline">
         <input type="hidden" name="_csrf" value="{{ csrf_token }}">
         <button class="btn-ghost" type="submit">Log out</button>

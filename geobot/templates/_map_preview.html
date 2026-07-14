@@ -1,0 +1,16 @@
+{% if error %}
+  <p class="flash" style="margin-top:1rem">{{ error }}</p>
+{% elif info %}
+  <div class="map-preview">
+    {% if info['thumbnail'] %}<img src="{{ info['thumbnail'] }}" width="140"
+       style="border-radius:8px" onerror="this.style.display='none'">{% endif %}
+    <form method="post" action="{{ url_for('maps.create') }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="map_id" value="{{ info['map_id'] }}">
+      <input type="hidden" name="thumbnail" value="{{ info['thumbnail'] or '' }}">
+      <label>Name<input name="name" value="{{ info['name'] }}"></label>
+      <p class="muted">Map ID: {{ info['map_id'] }}</p>
+      <button class="btn" type="submit">Save map</button>
+    </form>
+  </div>
+{% endif %}

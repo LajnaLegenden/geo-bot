@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if league else 'New' }} league · GeoBot{% endblock %}
+{% block content %}
+{% set sched = cron.parse_cron(league['cron_results']) if league else {'days': ['mon','tue','wed','thu','fri'], 'hour': 18, 'minute': 15} %}
+<div class="page-head"><h1>{{ 'Edit league' if league else 'New league' }}</h1></div>
+<div class="card">
+  <form method="post" action="{{ url_for('leagues.update', league_id=league['id']) if league else url_for('leagues.create') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <label>Name<input name="name" value="{{ league['name'] if league else '' }}" required></label>
+
+    <label>Channel (transport)
+      <select name="transport_cred_id" required>
+        {% for c in transports %}
+          <option value="{{ c['id'] }}" {{ 'selected' if league and league['transport_cred_id']==c['id'] else '' }}>{{ c['kind'] }} · {{ c['label'] }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% if not transports %}<p class="muted">No Slack/Discord credentials yet — add one first.</p>{% endif %}
+
+    <label>GeoGuessr account
+      <select name="geo_cred_id" required>
+        {% for c in geo %}
+          <option value="{{ c['id'] }}" {{ 'selected' if league and league['geo_cred_id']==c['id'] else '' }}>{{ c['label'] }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% if not geo %}<p class="muted">No GeoGuessr credentials yet — add one first.</p>{% endif %}
+
+    <fieldset class="days">
+      <legend>Post results + leaderboard on</legend>
+      {% for d in cron.WEEKDAYS %}
+        <label class="chk"><input type="checkbox" name="days" value="{{ d }}" {{ 'checked' if d in sched['days'] else '' }}> {{ cron.LABELS[d] }}</label>
+      {% endfor %}
+    </fieldset>
+    <label>Results time<input type="time" name="results_time" value="{{ '%02d:%02d'|format(sched['hour'], sched['minute']) }}"></label>
+    <label>Timezone (IANA)<input name="tz" value="{{ league['tz'] if league else 'UTC' }}" placeholder="Europe/Stockholm"></label>
+    <label>Public stats slug <span class="muted">(optional)</span><input name="public_slug" value="{{ (league['public_slug'] or '') if league else '' }}" placeholder="daily-geo"></label>
+
+    <button class="btn" type="submit">{{ 'Save changes' if league else 'Create league' }}</button>
+  </form>
+</div>
+{% endblock %}
