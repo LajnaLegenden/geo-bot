@@ -26,6 +26,20 @@ def post_workflow(variables: dict) -> None:
     r.raise_for_status()
 
 
+def post_to(url: str, text: str, blocks: list | None = None) -> None:
+    """Post to an explicit Incoming Webhook URL (multi-tenant: the URL comes
+    from the league's stored credential, not an env var)."""
+    payload = {"text": text}
+    if blocks:
+        payload["blocks"] = blocks
+    requests.post(url, json=payload, timeout=15).raise_for_status()
+
+
+def post_workflow_to(url: str, variables: dict) -> None:
+    """Post flat {title, body} to an explicit Workflow Builder trigger URL."""
+    requests.post(url, json=variables, timeout=15).raise_for_status()
+
+
 def cookie_expired_message() -> tuple[str, list]:
     text = "⚠️ GeoGuessr cookie expired — refresh the GEO_NCFA secret."
     blocks = [

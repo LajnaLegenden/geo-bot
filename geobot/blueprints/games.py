@@ -8,7 +8,7 @@ from flask import (
     Blueprint, abort, flash, redirect, render_template, request, session, url_for,
 )
 
-from .. import cron_builder, db, queries
+from .. import cron_builder, db, jobs, queries, scheduler
 from ..security import login_required
 
 bp = Blueprint("games", __name__, url_prefix="/leagues/<int:league_id>/games")
@@ -58,7 +58,8 @@ def new(league_id):
 @login_required
 def create(league_id):
     _require_league(league_id)
-    queries.add_game(db.conn(), league_id, **_form_fields(session["uid"]))
+    gid = queries.add_game(db.conn(), league_id, **_form_fields(session["uid"]))
+    scheduler.on_game_saved(league_id, gid)
     flash("Game saved.")
     return redirect(url_for("leagues.detail", league_id=league_id))
 
@@ -81,6 +82,7 @@ def update(league_id, game_id):
     if not queries.get_game(db.conn(), game_id, league_id):
         abort(404)
     queries.update_game(db.conn(), game_id, league_id, **_form_fields(session["uid"]))
+    scheduler.on_game_saved(league_id, game_id)
     flash("Game updated.")
     return redirect(url_for("leagues.detail", league_id=league_id))
 
@@ -90,5 +92,19 @@ def update(league_id, game_id):
 def delete(league_id, game_id):
     _require_league(league_id)
     queries.delete_game(db.conn(), game_id, league_id)
+    scheduler.on_game_deleted(game_id)
     flash("Game deleted.")
+    return redirect(url_for("leagues.detail", league_id=league_id))
+
+
+@bp.post("/<int:game_id>/run")
+@login_required
+def run(league_id, game_id):
+    _require_league(league_id)
+    if not queries.get_game(db.conn(), game_id, league_id):
+        abort(404)
+    try:
+        flash("Challenge: " + jobs.post_challenge(league_id, game_id))
+    except Exception as e:  # surface network/API failures, don't 500
+        flash(f"Challenge failed: {e}")
     return redirect(url_for("leagues.detail", league_id=league_id))

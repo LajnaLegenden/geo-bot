@@ -129,6 +129,11 @@ def get_league_by_slug(conn, slug) -> sqlite3.Row | None:
     ).fetchone()
 
 
+def all_leagues(conn) -> list[sqlite3.Row]:
+    """Every league across all users — the scheduler builds results jobs from this."""
+    return conn.execute("SELECT * FROM leagues").fetchall()
+
+
 def update_league(conn, league_id, user_id, name, transport_cred_id, geo_cred_id,
                   cron_results, tz, public_slug) -> None:
     conn.execute(

@@ -9,7 +9,7 @@ from flask import (
     Blueprint, abort, flash, redirect, render_template, request, session, url_for,
 )
 
-from .. import cron_builder, db, queries
+from .. import cron_builder, db, jobs, queries, scheduler
 from ..security import login_required
 
 bp = Blueprint("leagues", __name__, url_prefix="/leagues")
@@ -67,6 +67,7 @@ def create():
     except sqlite3.IntegrityError:
         flash("That public slug is already taken.")
         return redirect(url_for("leagues.new"))
+    scheduler.on_league_saved(lid)
     return redirect(url_for("leagues.detail", league_id=lid))
 
 
@@ -113,12 +114,29 @@ def update(league_id):
     except sqlite3.IntegrityError:
         flash("That public slug is already taken.")
         return redirect(url_for("leagues.edit", league_id=league_id))
+    scheduler.on_league_saved(league_id)
     return redirect(url_for("leagues.detail", league_id=league_id))
 
 
 @bp.post("/<int:league_id>/delete")
 @login_required
 def delete(league_id):
-    queries.delete_league(db.conn(), league_id, session["uid"])
-    flash("League deleted.")
+    uid = session["uid"]
+    if queries.get_league(db.conn(), league_id, uid):
+        game_ids = [g["id"] for g in queries.list_games(db.conn(), league_id)]
+        queries.delete_league(db.conn(), league_id, uid)
+        scheduler.on_league_deleted(league_id, game_ids)
+        flash("League deleted.")
     return redirect(url_for("dashboard"))
+
+
+@bp.post("/<int:league_id>/run-results")
+@login_required
+def run_results(league_id):
+    if not queries.get_league(db.conn(), league_id, session["uid"]):
+        abort(404)
+    try:
+        flash("Results: " + jobs.post_results(league_id))
+    except Exception as e:  # surface network/API failures, don't 500
+        flash(f"Results failed: {e}")
+    return redirect(url_for("leagues.detail", league_id=league_id))

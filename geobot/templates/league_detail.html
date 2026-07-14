@@ -14,6 +14,10 @@
   <p><strong>Stats:</strong>
     {% if league['public_slug'] %}public at <code>/s/{{ league['public_slug'] }}</code>{% else %}private{% endif %}
   </p>
+  <form method="post" action="{{ url_for('leagues.run_results', league_id=league['id']) }}" class="inline">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <button class="btn-ghost" type="submit">Post results now</button>
+  </form>
 </div>
 
 <div class="card">
@@ -29,7 +33,13 @@
         <td>{{ '%.2f'|format(g['weight']) }}</td>
         <td>{{ g['time_limit'] }}s</td>
         <td>{{ cron.describe(g['cron_challenge']) }}</td>
-        <td style="text-align:right"><a href="{{ url_for('games.edit', league_id=league['id'], game_id=g['id']) }}">Edit</a></td>
+        <td style="text-align:right" class="row-actions">
+          <form method="post" action="{{ url_for('games.run', league_id=league['id'], game_id=g['id']) }}" class="inline">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <button class="btn-ghost" type="submit">Run now</button>
+          </form>
+          <a href="{{ url_for('games.edit', league_id=league['id'], game_id=g['id']) }}">Edit</a>
+        </td>
       </tr>
     {% endfor %}
     </tbody>

@@ -9,12 +9,13 @@ import os
 
 from waitress import serve
 
-from . import db, migrate
+from . import db, migrate, scheduler
 from .app import create_app
 
 
 def main() -> None:
     migrate.migrate(db.conn())
+    scheduler.start()
     app = create_app()
     port = int(os.environ.get("PORT", "8080"))
     print(f"serving on :{port}")
