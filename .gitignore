@@ -1,3 +1,8 @@
 __pycache__/
 *.pyc
 .env
+.venv/
+data/geobot.db
+data/geobot.db-wal
+data/geobot.db-shm
+data/thumbs/

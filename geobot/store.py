@@ -19,8 +19,6 @@ import json
 import os
 from datetime import date, datetime, timedelta
 
-from .maps import weight
-
 STORE_PATH = os.environ.get("GEO_STORE", "data/store.json")
 
 
@@ -107,18 +105,20 @@ def week_start(today: date | None = None) -> date:
     return today - timedelta(days=today.weekday())
 
 
-def _token_map(data: dict) -> dict[str, str | None]:
-    return {c["token"]: c.get("map") for c in data["challenges"]}
+def _token_weight(data: dict) -> dict[str, float]:
+    """Per-challenge score multiplier stamped by the loader/importer; 1.0 when
+    absent, so single-map and legacy data stays unweighted."""
+    return {c["token"]: c.get("weight", 1.0) for c in data["challenges"]}
 
 
-def _weighted_board(scores: list[dict], token_map: dict) -> list[dict]:
-    """Sum each player's scores, scaling by map `weight` so an easier map
-    doesn't dominate. Returns [{'name', 'total', 'rounds'}] high to low."""
+def _weighted_board(scores: list[dict], token_weight: dict) -> list[dict]:
+    """Sum each player's scores, scaling by each challenge's `weight` so an easier
+    map doesn't dominate. Returns [{'name', 'total', 'rounds'}] high to low."""
     agg: dict[str, dict] = {}
     for s in scores:
         key = s["user_id"] or s["name"]
         e = agg.setdefault(key, {"key": key, "name": s["name"], "total": 0.0, "rounds": 0})
-        e["total"] += s["score"] * weight(token_map.get(s["token"]))
+        e["total"] += s["score"] * token_weight.get(s["token"], 1.0)
         e["rounds"] += 1
         e["name"] = s["name"]
     rows = list(agg.values())
@@ -128,20 +128,20 @@ def _weighted_board(scores: list[dict], token_map: dict) -> list[dict]:
     return rows
 
 
-def weekly_leaderboard() -> list[dict]:
+def weekly_leaderboard(data: dict | None = None) -> list[dict]:
     """Weighted board for the current week (scores since Monday)."""
-    data = _load()
+    data = data if data is not None else _load()
     start = week_start()
     scores = [
         s for s in data["scores"] if date.fromisoformat(s["date"]) >= start
     ]
-    return _weighted_board(scores, _token_map(data))
+    return _weighted_board(scores, _token_weight(data))
 
 
 PODIUM = [4, 2, 1]  # points for a week's 1st, 2nd, 3rd
 
 
-def season_leaderboard(today: date | None = None) -> list[dict]:
+def season_leaderboard(data: dict | None = None, today: date | None = None) -> list[dict]:
     """Weekly ranking points summed across weeks: 1st=4, 2nd=2, 3rd=1.
     'points' counts every week incl. the current (provisional) one;
     'points_finished' counts only weeks that have already ended.
@@ -151,8 +151,8 @@ def season_leaderboard(today: date | None = None) -> list[dict]:
     Each week is ranked by the same weighted board as the weekly leaderboard.
     # ponytail: exact ties for a podium spot resolve by sort order (stable),
     # not shared points — weighted totals essentially never tie."""
-    data = _load()
-    token_map = _token_map(data)
+    data = data if data is not None else _load()
+    token_weight = _token_weight(data)
     current = week_start(today)
 
     weeks: dict[date, list[dict]] = {}  # week-Monday -> [scores]
@@ -167,7 +167,7 @@ def season_leaderboard(today: date | None = None) -> list[dict]:
 
     agg: dict[str, dict] = {}           # player key -> {points, points_finished}
     for wk, scores in weeks.items():
-        for i, r in enumerate(_weighted_board(scores, token_map)[:3]):
+        for i, r in enumerate(_weighted_board(scores, token_weight)[:3]):
             e = agg.setdefault(r["key"], {"points": 0, "points_finished": 0})
             e["points"] += PODIUM[i]
             if wk != current:
@@ -188,19 +188,19 @@ def season_leaderboard(today: date | None = None) -> list[dict]:
     return rows
 
 
-def all_time_leaderboard() -> list[dict]:
+def all_time_leaderboard(data: dict | None = None) -> list[dict]:
     """Weighted board over every recorded score."""
-    data = _load()
-    return _weighted_board(data["scores"], _token_map(data))
+    data = data if data is not None else _load()
+    return _weighted_board(data["scores"], _token_weight(data))
 
 
-def map_stats() -> list[dict]:
+def map_stats(data: dict | None = None) -> list[dict]:
     """Per-map raw-score stats: [{'map', 'games', 'avg', 'best'}].
 
     Challenges predating map tracking have no `map` — treat them as 'normal',
     the long-standing daily map. Averages use raw scores (single-map, so no
     cross-map weighting needed)."""
-    data = _load()
+    data = data if data is not None else _load()
     token_map = {c["token"]: (c.get("map") or "normal") for c in data["challenges"]}
     by: dict[str, dict] = {}
     for s in data["scores"]:
@@ -222,14 +222,14 @@ def map_stats() -> list[dict]:
     return rows
 
 
-def player_stats() -> list[dict]:
+def player_stats(data: dict | None = None) -> list[dict]:
     """Per-player raw-score stats, sorted by games desc:
     [{'name', 'games', 'avg', 'best', 'per_map': {...}, 'pin',
       'avg_dist', 'perfects', 'chokes', 'avg_time'}].
 
     The guess-derived fields (avg_dist/perfects/chokes/avg_time) come from stored
     per-round `guesses`; rows predating guess capture contribute nothing to them."""
-    data = _load()
+    data = data if data is not None else _load()
     token_map = {c["token"]: (c.get("map") or "normal") for c in data["challenges"]}
     by: dict[str, dict] = {}
     for s in data["scores"]:
@@ -288,7 +288,7 @@ def player_stats() -> list[dict]:
     return rows
 
 
-def player_countries(min_rounds: int = 2) -> list[dict]:
+def player_countries(data: dict | None = None, min_rounds: int = 2) -> list[dict]:
     """Each player's best & worst country by average round points, joining their
     per-round `guesses` to the round's actual-location country:
     [{'name', 'best_cc', 'best_avg', 'worst_cc', 'worst_avg', 'rounds'}].
@@ -296,7 +296,7 @@ def player_countries(min_rounds: int = 2) -> list[dict]:
     Only countries a player has seen >= `min_rounds` times qualify; players with
     none qualifying are omitted. `min_rounds` is the calibration knob — data is
     sparse now (few rounds per country), so keep it low and raise it as games pile up."""
-    data = _load()
+    data = data if data is not None else _load()
     countries_by_token = {
         c["token"]: c.get("countries") or [] for c in data["challenges"]
     }
@@ -336,11 +336,11 @@ def player_countries(min_rounds: int = 2) -> list[dict]:
     return rows
 
 
-def round_wins() -> list[dict]:
+def round_wins(data: dict | None = None) -> list[dict]:
     """Per-round head-to-head, aggregated: how often each player had the strictly
     highest score on a round. [{'name', 'wins', 'rounds'}] sorted by wins desc.
     Ties for the top score on a round award nobody."""
-    data = _load()
+    data = data if data is not None else _load()
     by_token: dict[str, list[dict]] = {}
     for s in data["scores"]:
         by_token.setdefault(s["token"], []).append(s)
@@ -386,7 +386,7 @@ if __name__ == "__main__":  # python -m geobot.store — self-check
             {
                 "challenges": [
                     {"token": "t1", "date": "2026-07-06", "url": "", "map": "normal"},
-                    {"token": "t2", "date": "2026-07-06", "url": "", "map": "fast"},
+                    {"token": "t2", "date": "2026-07-06", "url": "", "map": "fast", "weight": 1.75},
                 ],
                 "scores": [
                     {"date": "2026-07-06", "token": "t1", "user_id": "a", "name": "A", "score": 1000},
@@ -403,6 +403,20 @@ if __name__ == "__main__":  # python -m geobot.store — self-check
         assert board[0]["name"] == "A" and board[0]["total"] == 2750, board
         ps = {p["name"]: p for p in player_stats()}
         assert ps["A"]["games"] == 2 and ps["A"]["per_map"]["fast"]["best"] == 1000, ps
+
+        # data= seam: functions accept an explicit dict (how the DB app feeds them);
+        # weight is read per-challenge, not from any global map table.
+        seam = {
+            "challenges": [
+                {"token": "x", "date": "2026-07-06", "url": "", "map": "a", "weight": 1.0},
+                {"token": "y", "date": "2026-07-06", "url": "", "map": "b", "weight": 2.0},
+            ],
+            "scores": [
+                {"date": "2026-07-06", "token": "x", "user_id": "p", "name": "P", "score": 100},
+                {"date": "2026-07-06", "token": "y", "user_id": "p", "name": "P", "score": 100},
+            ],
+        }
+        assert all_time_leaderboard(seam)[0]["total"] == 300, all_time_leaderboard(seam)  # 100*1 + 100*2
 
         # season points: two weeks; today in week of 2026-07-06 (that week is current)
         _save(
