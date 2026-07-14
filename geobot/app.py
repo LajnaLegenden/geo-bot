@@ -40,6 +40,17 @@ def create_app() -> Flask:
             token = session["_csrf"] = secrets.token_urlsafe(32)
         return {"csrf_token": token}
 
+    @app.teardown_request
+    def _rollback_on_error(exc):
+        # A failed write leaves sqlite's implicit transaction open, holding the
+        # WAL write lock -> later requests get "database is locked". Roll back any
+        # request that ended in an (uncaught) error so the lock is always released.
+        if exc is not None:
+            try:
+                db.conn().rollback()
+            except Exception:
+                pass
+
     app.register_blueprint(auth.bp)
     app.register_blueprint(credentials.bp)
     app.register_blueprint(maps.bp)

@@ -4,6 +4,8 @@ credential) and returns a preview fragment with a Save form.
 """
 from __future__ import annotations
 
+import sqlite3
+
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
 from .. import db, queries
@@ -54,6 +56,10 @@ def create():
 @bp.post("/<int:map_pk>/delete")
 @login_required
 def delete(map_pk):
-    queries.delete_map(db.conn(), map_pk, session["uid"])
-    flash("Map deleted.")
+    try:
+        queries.delete_map(db.conn(), map_pk, session["uid"])
+        flash("Map deleted.")
+    except sqlite3.IntegrityError:  # still referenced by a game (RESTRICT)
+        db.conn().rollback()
+        flash("Can't delete: this map is still used by a game. Remove those games first.")
     return redirect(url_for("maps.index"))

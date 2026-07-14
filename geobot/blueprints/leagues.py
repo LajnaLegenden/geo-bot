@@ -74,6 +74,7 @@ def create():
     try:
         lid = queries.add_league(db.conn(), uid, name, transport_id, geo_id, cron, tz, slug, pull)
     except sqlite3.IntegrityError:
+        db.conn().rollback()
         flash("That public slug is already taken.")
         return redirect(url_for("leagues.new"))
     scheduler.on_league_saved(lid)
@@ -122,6 +123,7 @@ def update(league_id):
     try:
         queries.update_league(db.conn(), league_id, uid, name, transport_id, geo_id, cron, tz, slug, pull)
     except sqlite3.IntegrityError:
+        db.conn().rollback()
         flash("That public slug is already taken.")
         return redirect(url_for("leagues.edit", league_id=league_id))
     scheduler.on_league_saved(league_id)

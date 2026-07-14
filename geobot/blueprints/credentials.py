@@ -5,6 +5,7 @@ back after saving.
 from __future__ import annotations
 
 import json
+import sqlite3
 
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
@@ -41,6 +42,10 @@ def create():
 @bp.post("/<int:cred_id>/delete")
 @login_required
 def delete(cred_id):
-    queries.delete_credential(db.conn(), cred_id, session["uid"])
-    flash("Credential deleted.")
+    try:
+        queries.delete_credential(db.conn(), cred_id, session["uid"])
+        flash("Credential deleted.")
+    except sqlite3.IntegrityError:  # still referenced by a league (RESTRICT)
+        db.conn().rollback()
+        flash("Can't delete: this credential is still used by a league. Update those leagues first.")
     return redirect(url_for("credentials.index"))
