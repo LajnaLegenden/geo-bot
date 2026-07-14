@@ -1,135 +1,88 @@
-# GeoGuessr Slack bot
+# geo-bot
 
-Posts a daily GeoGuessr challenge to Slack and keeps a weekly leaderboard that
-resets every Monday. Runs entirely on GitHub Actions (free cron) and stores state
-in a committed JSON file — no database, no server.
+A self-hosted, multi-tenant app that runs recurring GeoGuessr challenges and
+posts them (plus a weekly/season leaderboard) to a chat channel. Sign up, add
+your credentials and maps in the UI, define leagues and their games, and the
+built-in scheduler handles the rest. Slack is supported today; the transport
+layer is pluggable (Discord etc. drop in later).
 
-## How it works
+## Model
 
-- **07:00 UTC** — creates a new challenge, posts the link to Slack.
-- **19:00 UTC** — fetches scores for every challenge in the last 7 days, recomputes
-  **this week's** leaderboard (scores since Monday), posts it to Slack, and commits
-  the updated scores back to the repo.
+- **User** — self-registered account; sees only its own data.
+- **Credential** — a GeoGuessr `_ncfa` cookie or a transport token (Slack webhook).
+  Encrypted at rest.
+- **Map** — a GeoGuessr map saved by paste + validate (id/URL → name + thumbnail).
+- **League** — a channel + one GeoGuessr account + the combined weekly/season
+  leaderboard + a results schedule + an optional public stats page.
+- **Game** — inside a league: one map + challenge settings (time limit, movement
+  rules) + a score `weight` + its own "post a new challenge" schedule.
 
-The week boundary is the runner's local date: Monday 00:00 in `TZ` on Coolify
-(e.g. Europe/Stockholm), or UTC on GitHub Actions. All scores are kept in
-`data/store.json` forever, so the all-time views on the stats site still work.
+`normal` + `fast` = two games in one league feeding one weighted leaderboard.
 
-Edit the cron lines in `.github/workflows/bot.yml` to match your timezone.
+## Run it
 
-## Deploy on Coolify (self-hosted scheduler)
-
-GitHub cron runs scheduled jobs late (often 1–2h). To fire on time, run it on
-Coolify instead — it owns the scheduling. The container just idles; Coolify's
-**Scheduled Tasks** exec the bot inside it on a cron.
-
-1. **New Resource → your repo**, build pack **Dockerfile** (this repo's `Dockerfile`).
-2. **Environment Variables** — set the vars from [`.env.example`](.env.example):
-   `GITHUB_REPO`, `GITHUB_TOKEN` (fine-grained PAT, **Contents: read/write** on this
-   repo — used to pull latest and push `data/store.json` back), `GEO_NCFA`,
-   `SLACK_SINK`, and the matching Slack URL. Also set `TZ=Europe/Stockholm` so the
-   cron times below are local (DST handled automatically).
-3. Deploy. The container clones the repo, wires up git auth, then idles.
-4. **Scheduled Tasks** — add three, each a cron + command:
-
-   | Cron (in `TZ`)   | Command                          | What it does            |
-   |------------------|----------------------------------|-------------------------|
-   | `50 9 * * 1-5`   | `/opt/run.sh new normal`         | create "normal" challenge |
-   | `24 13 * * 1-5`  | `/opt/run.sh new fast`           | create "fast" challenge   |
-   | `15 16 * * 1-5`  | `/opt/run.sh update`             | refresh scores + leaderboard |
-
-State still lives in git: each run pulls latest `data/store.json`, runs, and
-pushes the update back — same model as Actions, just on-time. Disable the GHA
-`schedule:` block so you don't get double runs (keep `workflow_dispatch` for
-manual/backup runs).
-
-## Stats website
-
-The container also serves a small stats site (this week + all-time leaderboards,
-per-map averages, per-player breakdown) on **port 8080**, refreshed via htmx.
-It reads `data/store.json` server-side and serves **only computed stats** — the
-raw store, `data/` and `.git` are never exposed. Data is as fresh as the last
-`update` run (each run pulls latest before serving).
-
-To reach it, add a **Domain** (or exposed port) for the resource in Coolify
-pointing at container port `8080`. Nothing else to configure. Run it locally with
-`GEO_STORE=data/store.json python -m geobot.web` and open http://localhost:8080.
-
-## Setup
-
-1. **Fork/create the repo** and push these files.
-
-2. **Get your GeoGuessr session cookie.** Log in at geoguessr.com, open DevTools →
-   Application → Cookies → copy the value of `_ncfa`. (Treat it like a password; it
-   grants access to your account. Use a throwaway account if you'd rather.)
-
-3. **Create a Slack Incoming Webhook** for your channel:
-   api.slack.com/apps → Create app → Incoming Webhooks → Add to channel → copy the URL.
-
-4. **Add repo secrets** (Settings → Secrets and variables → Actions):
-   - `GEO_NCFA` — the cookie value
-   - `SLACK_WEBHOOK_URL` — the webhook URL
-
-5. **Enable Actions** and either wait for the cron or trigger manually
-   (Actions tab → geoguessr-bot → Run workflow → pick `new` or `update`).
-
-## Slack Workflow Builder (alternative)
-
-Instead of an incoming webhook you can post through a Slack **Workflow Builder**
-"From a webhook" trigger. Slack owns the message layout, so non-technical users
-can edit the wording in Slack without touching this repo. Tradeoff: no Block Kit —
-plainer formatting (no bold, links posted as bare URLs).
-
-1. In Slack: **Automations → Workflows → New Workflow → From a webhook**.
-2. Add two **variables** named exactly `title` and `body` (both text).
-3. Add a **Send a message** step and drop the `title`/`body` variables into it.
-4. Publish, then copy the webhook **URL**.
-5. Add it as the `SLACK_WORKFLOW_URL` repo secret.
-6. In `.github/workflows/bot.yml`, set `SLACK_SINK: workflow`.
-
-Leave `SLACK_SINK` unset or `incoming` to keep using the incoming webhook.
-
-## Maps
-
-Map configs live in [`geobot/maps.py`](geobot/maps.py) — the `MAPS` dict, one
-entry per named map. Each entry is the challenge settings (`map_id`,
-`time_limit`, `forbid_moving`, …) plus an optional `weight`:
-
-```python
-MAPS = {
-    "normal": {"map_id": "…", "time_limit": 120, "forbid_moving": True},
-    "fast":   {"map_id": "…", "time_limit": 15,  "forbid_moving": True, "weight": 1.75},
-}
-```
-
-The workflow picks a map by name — one `new` cron per map (see `bot.yml`), or the
-`map` input when you run it manually. Add a map by adding a dict entry and (if you
-want it scheduled) a cron; validate with `python -m geobot.maps`.
-
-`weight` scales that map's scores in the **combined** 7-day leaderboard, so an
-easier map doesn't dominate the raw-score sum (`1.0` if omitted). Raw scores are
-stored unchanged; tuning a weight re-scales the board retroactively.
-
-## Cookie expiry
-
-Before doing anything, each run pings an authenticated endpoint to confirm the
-`_ncfa` cookie still works. If it's dead (expired, password changed, or logged out in
-that browser session), the bot posts a ⚠️ warning to Slack and exits instead of failing
-silently. To fix: grab a fresh `_ncfa` cookie and update the `GEO_NCFA` repo secret —
-no code change. Using a dedicated GeoGuessr account for the bot keeps your personal
-logins and password changes from ever killing it.
-
-## Caveats
-GeoGuessr has no official API. These endpoints are unofficial, can break when
-GeoGuessr changes their site, and may run against their Terms of Service — fine for a
-private friend group, think twice before scaling it. The leaderboard only counts people
-who actually played each day's challenge with the account that has the link.
-
-## Local test
+Local:
 
 ```bash
-pip install -r requirements.txt
-export GEO_NCFA=... SLACK_WEBHOOK_URL=...
-python -m geobot.main new
-python -m geobot.main update
+python -m venv .venv && .venv/bin/pip install -r requirements.txt
+export GEO_FERNET_KEY="$(python -c 'from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())')"
+export SECRET_KEY="$(python -c 'import secrets;print(secrets.token_hex(32))')"
+.venv/bin/python -m geobot.serve          # http://localhost:8080
 ```
+
+Docker (single container + a `/data` volume for the SQLite db):
+
+```bash
+docker build -t geo-bot .
+docker run -p 8080:8080 -v geo-bot-data:/data \
+  -e GEO_FERNET_KEY=... -e SECRET_KEY=... geo-bot
+```
+
+Env vars are documented in `.env.example`. **Keep `GEO_FERNET_KEY` stable** — it
+decrypts stored credentials. On Coolify, deploy as a normal web service pointing
+at port 8080 with a persistent `/data` volume (no scheduled tasks — the app
+schedules itself).
+
+## First-run setup
+
+1. Register an account, then **Credentials** → add a GeoGuessr cookie (the `_ncfa`
+   value from a logged-in browser: DevTools → Application → Cookies) and a Slack
+   Incoming Webhook URL (api.slack.com/apps → Incoming Webhooks). Slack Workflow
+   Builder triggers are supported too — pick "Workflow Builder" as the mode.
+2. **Maps** → paste a GeoGuessr map URL/ID and save it.
+3. **New league** → pick the channel + GeoGuessr account, set the results
+   schedule + timezone, optionally publish a public stats slug.
+4. Add one or more **games** (map + settings + weight + challenge schedule).
+5. Use **Run now** on a game / **Post results now** on a league to test without
+   waiting for the schedule.
+
+Stats are private by default; a league with a public slug is viewable at
+`/s/<slug>`. `weight` scales a game's scores in the combined board so an easier
+game doesn't dominate (`1.0` = unweighted).
+
+## Importing existing data
+
+To carry over an old `data/store.json`, create the league and games first
+(name the games to match the store's `map` values, e.g. `normal`/`fast`), then:
+
+```bash
+.venv/bin/python -m geobot.import_store <league_id> [path/to/store.json]
+```
+
+Re-fetch per-round data (guesses, countries, avatars) for a league:
+
+```bash
+.venv/bin/python -m geobot.backfill <league_id>
+```
+
+## Notes
+
+- Runs as a single process (waitress) so the in-process scheduler fires each job
+  once — do not put it behind a multi-worker WSGI server.
+- Cookie expiry: each scheduled/Run-now action pings an authenticated endpoint
+  first; if the `_ncfa` cookie is dead it posts a ⚠️ alert to the channel instead
+  of failing silently. Fix by adding a fresh cookie credential.
+- GeoGuessr has no official API; endpoints are reverse-engineered and can change
+  without notice — `resolve_map`'s response parsing is best-effort. Fine for a
+  private friend group; think twice before scaling.
+- Schema changes go in `migrations/NNNN_*.sql` (applied in order on startup).

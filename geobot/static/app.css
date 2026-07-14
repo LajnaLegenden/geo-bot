@@ -108,3 +108,15 @@ label.chk input { width: auto; margin: 0; }
   padding-top: 1rem; border-top: 1px solid var(--border); }
 .map-preview form { flex: 1; }
 code { background: #11141d; border: 1px solid var(--border); border-radius: 5px; padding: .1rem .4rem; }
+.row-actions { white-space: nowrap; }
+.row-actions .inline { margin-right: .6rem; }
+
+/* stats grid (private league page + public /s/<slug>) */
+.section-title { margin: 1.5rem 0 .75rem; }
+.grid.stats { display: grid; gap: 1.25rem; grid-template-columns: 1fr 1fr; }
+.grid.stats section { background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1rem 1.25rem; min-width: 0; }
+.grid.stats .wide { grid-column: 1 / -1; }
+.per-map { text-align: left; color: var(--muted); font-size: .8rem; }
+.hint { color: var(--muted); font-size: .8rem; margin: -.25rem 0 .5rem; }
+@media (max-width: 640px) { .grid.stats { grid-template-columns: 1fr; } }

@@ -1,18 +1,15 @@
 FROM python:3.12-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      git ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
-COPY docker/entrypoint.sh docker/run.sh /opt/
-RUN chmod +x /opt/entrypoint.sh /opt/run.sh
-
 WORKDIR /app
+COPY . /app
+
+# SQLite (and any cached data) lives on a persistent volume; state is no longer
+# in git. Single process on purpose: Flask + APScheduler in one waitress server,
+# so scheduled jobs fire exactly once (a multi-worker server would fire N times).
+ENV GEO_DB=/data/geobot.db
+VOLUME ["/data"]
 EXPOSE 8080
-# Coolify's scheduled tasks exec INTO this running container. entrypoint clones
-# the repo + sets up git auth, then serves the stats site (port 8080) to stay
-# alive. Scheduled tasks then run `/opt/run.sh new normal` (etc.) inside it.
-ENTRYPOINT ["/opt/entrypoint.sh"]
+CMD ["python", "-m", "geobot.serve"]

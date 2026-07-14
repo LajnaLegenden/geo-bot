@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% from "_stats.html" import stats_grid with context %}
+{% block title %}{{ league['name'] }} · stats{% endblock %}
+{% block content %}
+<div class="page-head"><h1>{{ league['name'] }}</h1></div>
+{{ stats_grid('stats.public_fragment', {'slug': slug}) }}
+{% endblock %}

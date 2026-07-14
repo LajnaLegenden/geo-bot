@@ -268,15 +268,16 @@ def upsert_scores(conn, league_id, token, result: dict) -> None:
 def load_league_data(conn, league_id) -> dict:
     """Rebuild the {'challenges', 'scores'} dict store.py's stat functions expect,
     scoped to one league. Each challenge is stamped with its game's `weight` and
-    map `name` so the combined weighted board + per-map split work unchanged."""
+    the game `name` (store.py's `map` field) so the combined weighted board + the
+    per-game ('Maps') split work unchanged — a game is the new unit of play."""
     challenges = [
         {"token": r["token"], "date": r["date"], "url": r["url"],
          "countries": json.loads(r["countries"]) if r["countries"] else None,
-         "weight": r["weight"], "map": r["map_name"]}
+         "weight": r["weight"], "map": r["game_name"]}
         for r in conn.execute(
-            "SELECT c.token, c.date, c.url, c.countries, g.weight, m.name AS map_name "
+            "SELECT c.token, c.date, c.url, c.countries, g.weight, g.name AS game_name "
             "FROM challenges c JOIN games g ON g.id=c.game_id "
-            "JOIN maps m ON m.id=g.map_ref WHERE c.league_id=? ORDER BY c.date",
+            "WHERE c.league_id=? ORDER BY c.date",
             (league_id,),
         )
     ]

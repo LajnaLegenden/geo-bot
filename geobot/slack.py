@@ -1,29 +1,13 @@
-"""Post to Slack via an Incoming Webhook (simplest) or a bot token.
+"""Slack message + variable builders and URL-explicit posters.
 
-Incoming webhook needs no scopes — just create one for your channel at
-https://api.slack.com/apps and set SLACK_WEBHOOK_URL.
+Incoming webhooks need no scopes — create one per channel at
+https://api.slack.com/apps. The webhook/trigger URL is stored per league as an
+encrypted credential and handed to post_to()/post_workflow_to() by the Slack
+transport (geobot/transports/slack.py).
 """
 from __future__ import annotations
 
-import os
-
 import requests
-
-
-def post(text: str, blocks: list | None = None) -> None:
-    url = os.environ["SLACK_WEBHOOK_URL"]
-    payload = {"text": text}
-    if blocks:
-        payload["blocks"] = blocks
-    r = requests.post(url, json=payload, timeout=15)
-    r.raise_for_status()
-
-
-def post_workflow(variables: dict) -> None:
-    """POST flat {title, body} to a Workflow Builder 'From a webhook' trigger."""
-    url = os.environ["SLACK_WORKFLOW_URL"]
-    r = requests.post(url, json=variables, timeout=15)
-    r.raise_for_status()
 
 
 def post_to(url: str, text: str, blocks: list | None = None) -> None:

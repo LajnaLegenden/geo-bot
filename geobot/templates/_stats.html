@@ -1,0 +1,21 @@
+{# The stats grid, shared by the private league page and the public /s/<slug> page.
+   The macro owns the section list; callers pass the fragment endpoint + its args. #}
+{% set STAT_SECTIONS = [
+  ('weekly', '🏆 This week'),
+  ('season', '🏅 Season points'),
+  ('alltime', '👑 All-time'),
+  ('maps', '🗺️ Maps'),
+  ('players', '🧑 Players'),
+  ('countries', '🌍 Best / worst countries'),
+  ('roundwins', '⚔️ Round wins'),
+] %}
+{% macro stats_grid(endpoint, kwargs) %}
+<div class="grid stats">
+  {% for key, heading in STAT_SECTIONS %}
+  <section{% if key == 'players' %} class="wide"{% endif %}>
+    <h2>{{ heading }}</h2>
+    <div hx-get="{{ url_for(endpoint, key=key, **kwargs) }}" hx-trigger="load, every 60s">…</div>
+  </section>
+  {% endfor %}
+</div>
+{% endmacro %}

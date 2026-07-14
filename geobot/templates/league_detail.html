@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_stats.html" import stats_grid with context %}
 {% block title %}{{ league['name'] }} · GeoBot{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -46,6 +47,9 @@
   </table>
   {% else %}<p class="muted">No games yet — add one to start posting challenges.</p>{% endif %}
 </div>
+
+<h2 class="section-title">Stats</h2>
+{{ stats_grid('stats.private_fragment', {'league_id': league['id']}) }}
 
 <div class="card">
   <form method="post" action="{{ url_for('leagues.delete', league_id=league['id']) }}"

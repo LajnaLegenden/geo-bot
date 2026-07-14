@@ -12,7 +12,7 @@ import secrets
 from flask import Flask, abort, render_template, request, session
 
 from . import db, queries
-from .blueprints import auth, credentials, games, leagues, maps
+from .blueprints import auth, credentials, games, leagues, maps, stats
 from .security import login_required
 
 
@@ -45,6 +45,7 @@ def create_app() -> Flask:
     app.register_blueprint(maps.bp)
     app.register_blueprint(leagues.bp)
     app.register_blueprint(games.bp)
+    app.register_blueprint(stats.bp)
 
     @app.route("/")
     @login_required
