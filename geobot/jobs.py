@@ -64,7 +64,39 @@ def post_challenge(league_id: int, game_id: int) -> str:
     return f"posted challenge {token}"
 
 
-def post_results(league_id: int) -> str:
+def _fetch_scores(conn, league_id, gg) -> int:
+    """Fetch highscores for recent challenges and upsert them. No posting."""
+    n = 0
+    for token in queries.recent_tokens(conn, league_id, days=7):
+        try:
+            queries.upsert_scores(conn, league_id, token, gg.highscores(token))
+            n += 1
+        except Exception as e:  # one bad token shouldn't sink the run
+            print(f"skip {token}: {e}")
+    return n
+
+
+def pull_results(league_id: int) -> str:
+    """Refresh scores into the DB (keeps stats pages fresh). Never posts to Slack.
+    Runs on the league's `pull_minutes` interval + the 'Pull now' button."""
+    conn = db.conn()
+    league = conn.execute("SELECT * FROM leagues WHERE id=?", (league_id,)).fetchone()
+    if not league:
+        return "league no longer exists"
+    gg = _client(conn, league)
+    transport, dest = _transport(conn, league)
+    if gg is None:
+        return "missing GeoGuessr credential"
+    if not gg.check_auth():
+        if transport is not None:
+            transport.send_alert(dest, "cookie_expired")
+        return "GeoGuessr cookie invalid"
+    return f"pulled {_fetch_scores(conn, league_id, gg)} challenge(s)"
+
+
+def post_leaderboard(league_id: int) -> str:
+    """Post the current weekly leaderboard to the channel — the once/day action.
+    Does one courtesy pull first so the posted board is up-to-the-minute."""
     conn = db.conn()
     league = conn.execute("SELECT * FROM leagues WHERE id=?", (league_id,)).fetchone()
     if not league:
@@ -76,13 +108,7 @@ def post_results(league_id: int) -> str:
     if not gg.check_auth():
         transport.send_alert(dest, "cookie_expired")
         return "GeoGuessr cookie invalid"
-    n = 0
-    for token in queries.recent_tokens(conn, league_id, days=7):
-        try:
-            queries.upsert_scores(conn, league_id, token, gg.highscores(token))
-            n += 1
-        except Exception as e:  # one bad token shouldn't sink the run
-            print(f"skip {token}: {e}")
+    n = _fetch_scores(conn, league_id, gg)  # courtesy pull before posting
     rows = store.weekly_leaderboard(queries.load_league_data(conn, league_id))
     transport.send_leaderboard(dest, rows, league["name"])
-    return f"updated {n} challenge(s), posted leaderboard"
+    return f"pulled {n}, posted leaderboard"

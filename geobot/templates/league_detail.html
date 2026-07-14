@@ -11,14 +11,21 @@
 </div>
 
 <div class="card">
-  <p><strong>Results:</strong> {{ cron.describe(league['cron_results']) }} · {{ league['tz'] }}</p>
+  <p><strong>Leaderboard post:</strong> {{ cron.describe(league['cron_results']) }} · {{ league['tz'] }}</p>
+  <p><strong>Pull results:</strong> {% if league['pull_minutes'] %}every {{ league['pull_minutes'] }} min{% else %}off{% endif %}</p>
   <p><strong>Stats:</strong>
     {% if league['public_slug'] %}public at <code>/s/{{ league['public_slug'] }}</code>{% else %}private{% endif %}
   </p>
-  <form method="post" action="{{ url_for('leagues.run_results', league_id=league['id']) }}" class="inline">
-    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-    <button class="btn-ghost" type="submit">Post results now</button>
-  </form>
+  <div class="head-actions">
+    <form method="post" action="{{ url_for('leagues.run_pull', league_id=league['id']) }}" class="inline">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <button class="btn-ghost" type="submit">Pull now</button>
+    </form>
+    <form method="post" action="{{ url_for('leagues.run_post', league_id=league['id']) }}" class="inline">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <button class="btn-ghost" type="submit">Post to Slack now</button>
+    </form>
+  </div>
 </div>
 
 <div class="card">

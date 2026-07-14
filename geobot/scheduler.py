@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from . import cron_builder, db, jobs, queries
 
@@ -69,14 +70,25 @@ def _remove(job_id: str) -> None:
 
 
 def _sync_league(league) -> None:
-    jid = f"league:{league['id']}:results"
-    if league["enabled"]:
+    lid = league["id"]
+    post_id, pull_id = f"league:{lid}:post", f"league:{lid}:pull"
+    if not league["enabled"]:
+        _remove(post_id); _remove(pull_id)
+        return
+    # daily Slack post
+    _scheduler.add_job(
+        jobs.post_leaderboard, _trigger(league["cron_results"], league["tz"]),
+        args=[lid], id=post_id, replace_existing=True,
+    )
+    # frequent silent pull (0 = off)
+    minutes = league["pull_minutes"] or 0
+    if minutes > 0:
         _scheduler.add_job(
-            jobs.post_results, _trigger(league["cron_results"], league["tz"]),
-            args=[league["id"]], id=jid, replace_existing=True,
+            jobs.pull_results, IntervalTrigger(minutes=minutes),
+            args=[lid], id=pull_id, replace_existing=True,
         )
     else:
-        _remove(jid)
+        _remove(pull_id)
 
 
 def _sync_game(g) -> None:
@@ -106,7 +118,8 @@ def on_league_saved(league_id: int) -> None:
 def on_league_deleted(league_id: int, game_ids: list[int]) -> None:
     if _scheduler is None:
         return
-    _remove(f"league:{league_id}:results")
+    _remove(f"league:{league_id}:post")
+    _remove(f"league:{league_id}:pull")
     for gid in game_ids:
         _remove(f"game:{gid}:challenge")
 

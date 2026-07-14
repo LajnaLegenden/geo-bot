@@ -98,11 +98,12 @@ def delete_map(conn, map_pk, user_id) -> None:
 # --- leagues ----------------------------------------------------------------
 
 def add_league(conn, user_id, name, transport_cred_id, geo_cred_id,
-               cron_results, tz, public_slug) -> int:
+               cron_results, tz, public_slug, pull_minutes=60) -> int:
     cur = conn.execute(
         "INSERT INTO leagues(user_id, name, transport_cred_id, geo_cred_id, "
-        "cron_results, tz, public_slug) VALUES(?,?,?,?,?,?,?)",
-        (user_id, name, transport_cred_id, geo_cred_id, cron_results, tz, public_slug),
+        "cron_results, tz, public_slug, pull_minutes) VALUES(?,?,?,?,?,?,?,?)",
+        (user_id, name, transport_cred_id, geo_cred_id, cron_results, tz,
+         public_slug, pull_minutes),
     )
     conn.commit()
     return cur.lastrowid
@@ -135,12 +136,12 @@ def all_leagues(conn) -> list[sqlite3.Row]:
 
 
 def update_league(conn, league_id, user_id, name, transport_cred_id, geo_cred_id,
-                  cron_results, tz, public_slug) -> None:
+                  cron_results, tz, public_slug, pull_minutes=60) -> None:
     conn.execute(
         "UPDATE leagues SET name=?, transport_cred_id=?, geo_cred_id=?, "
-        "cron_results=?, tz=?, public_slug=? WHERE id=? AND user_id=?",
+        "cron_results=?, tz=?, public_slug=?, pull_minutes=? WHERE id=? AND user_id=?",
         (name, transport_cred_id, geo_cred_id, cron_results, tz, public_slug,
-         league_id, user_id),
+         pull_minutes, league_id, user_id),
     )
     conn.commit()
 

@@ -27,12 +27,21 @@
     {% if not geo %}<p class="muted">No GeoGuessr credentials yet — add one first.</p>{% endif %}
 
     <fieldset class="days">
-      <legend>Post results + leaderboard on</legend>
+      <legend>Post leaderboard to Slack on</legend>
       {% for d in cron.WEEKDAYS %}
         <label class="chk"><input type="checkbox" name="days" value="{{ d }}" {{ 'checked' if d in sched['days'] else '' }}> {{ cron.LABELS[d] }}</label>
       {% endfor %}
     </fieldset>
-    <label>Results time<input type="time" name="results_time" value="{{ '%02d:%02d'|format(sched['hour'], sched['minute']) }}"></label>
+    <label>Post time<input type="time" name="results_time" value="{{ '%02d:%02d'|format(sched['hour'], sched['minute']) }}"></label>
+    <label>Pull results <span class="muted">(fetch scores in the background — never posts)</span>
+      {% set pm = league['pull_minutes'] if league else 60 %}
+      <select name="pull_minutes">
+        <option value="0" {{ 'selected' if pm == 0 else '' }}>Off</option>
+        <option value="15" {{ 'selected' if pm == 15 else '' }}>Every 15 min</option>
+        <option value="30" {{ 'selected' if pm == 30 else '' }}>Every 30 min</option>
+        <option value="60" {{ 'selected' if pm == 60 else '' }}>Every 60 min</option>
+      </select>
+    </label>
     <label>Timezone (IANA)<input name="tz" value="{{ league['tz'] if league else 'UTC' }}" placeholder="Europe/Stockholm"></label>
     <label>Public stats slug <span class="muted">(optional)</span><input name="public_slug" value="{{ (league['public_slug'] or '') if league else '' }}" placeholder="daily-geo"></label>
 

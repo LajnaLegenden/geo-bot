@@ -50,8 +50,10 @@ schedules itself).
    Incoming Webhook URL (api.slack.com/apps → Incoming Webhooks). Slack Workflow
    Builder triggers are supported too — pick "Workflow Builder" as the mode.
 2. **Maps** → paste a GeoGuessr map URL/ID and save it.
-3. **New league** → pick the channel + GeoGuessr account, set the results
-   schedule + timezone, optionally publish a public stats slug.
+3. **New league** → pick the channel + GeoGuessr account, set the **leaderboard
+   post** schedule + timezone and the **pull interval** (how often scores refresh
+   in the background — a separate, silent action from the daily Slack post),
+   optionally publish a public stats slug.
 4. Add one or more **games** (map + settings + weight + challenge schedule).
 5. Use **Run now** on a game / **Post results now** on a league to test without
    waiting for the schedule.

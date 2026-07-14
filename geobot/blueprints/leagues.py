@@ -23,6 +23,14 @@ def _hm(s: str) -> tuple[int, int]:
         return 9, 0
 
 
+def _pull_minutes(v) -> int:
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return 60
+    return n if n in (0, 15, 30, 60) else 60  # restrict to the dropdown's values
+
+
 def _cred_lists(uid):
     return (
         queries.list_credentials(db.conn(), uid, kind="geoguessr"),
@@ -62,8 +70,9 @@ def create():
     cron = cron_builder.build_cron(request.form.getlist("days"), h, m)
     tz = (request.form.get("tz") or "UTC").strip()
     slug = (request.form.get("public_slug") or "").strip() or None
+    pull = _pull_minutes(request.form.get("pull_minutes"))
     try:
-        lid = queries.add_league(db.conn(), uid, name, transport_id, geo_id, cron, tz, slug)
+        lid = queries.add_league(db.conn(), uid, name, transport_id, geo_id, cron, tz, slug, pull)
     except sqlite3.IntegrityError:
         flash("That public slug is already taken.")
         return redirect(url_for("leagues.new"))
@@ -109,8 +118,9 @@ def update(league_id):
     cron = cron_builder.build_cron(request.form.getlist("days"), h, m)
     tz = (request.form.get("tz") or "UTC").strip()
     slug = (request.form.get("public_slug") or "").strip() or None
+    pull = _pull_minutes(request.form.get("pull_minutes"))
     try:
-        queries.update_league(db.conn(), league_id, uid, name, transport_id, geo_id, cron, tz, slug)
+        queries.update_league(db.conn(), league_id, uid, name, transport_id, geo_id, cron, tz, slug, pull)
     except sqlite3.IntegrityError:
         flash("That public slug is already taken.")
         return redirect(url_for("leagues.edit", league_id=league_id))
@@ -130,13 +140,25 @@ def delete(league_id):
     return redirect(url_for("dashboard"))
 
 
-@bp.post("/<int:league_id>/run-results")
+@bp.post("/<int:league_id>/pull-now")
 @login_required
-def run_results(league_id):
+def run_pull(league_id):
     if not queries.get_league(db.conn(), league_id, session["uid"]):
         abort(404)
     try:
-        flash("Results: " + jobs.post_results(league_id))
+        flash("Pull: " + jobs.pull_results(league_id))
     except Exception as e:  # surface network/API failures, don't 500
-        flash(f"Results failed: {e}")
+        flash(f"Pull failed: {e}")
+    return redirect(url_for("leagues.detail", league_id=league_id))
+
+
+@bp.post("/<int:league_id>/post-now")
+@login_required
+def run_post(league_id):
+    if not queries.get_league(db.conn(), league_id, session["uid"]):
+        abort(404)
+    try:
+        flash("Post: " + jobs.post_leaderboard(league_id))
+    except Exception as e:  # surface network/API failures, don't 500
+        flash(f"Post failed: {e}")
     return redirect(url_for("leagues.detail", league_id=league_id))
