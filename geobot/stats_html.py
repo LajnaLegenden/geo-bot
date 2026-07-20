@@ -19,6 +19,17 @@ def _avatar_url(pin: str) -> str:
     return pin if pin.startswith("http") else PIN_BASE + pin
 
 
+def _avatar_img(pin: str | None) -> str:
+    """Inline round avatar that hides itself if the image 404s. Empty when no pin."""
+    if not pin:
+        return ""
+    return (
+        f"<img src='{html.escape(_avatar_url(pin))}' width='20' height='20' "
+        f"style='vertical-align:middle;border-radius:50%;margin-right:.4rem' "
+        f"onerror='this.style.display=&quot;none&quot;'>"
+    )
+
+
 def _flag(cc: str) -> str:
     cc = (cc or "").lower()
     if len(cc) != 2 or not cc.isalpha():
@@ -90,12 +101,7 @@ def _players_html(rows: list[dict]) -> str:
             f"{html.escape(m)} {v['avg']:,} avg ({v['games']})"
             for m, v in r["per_map"].items()
         )
-        avatar = (
-            f"<img src='{html.escape(_avatar_url(r['pin']))}' width='20' height='20' "
-            f"style='vertical-align:middle;border-radius:50%;margin-right:.4rem' "
-            f"onerror='this.style.display=&quot;none&quot;'>"
-            if r.get("pin") else ""
-        )
+        avatar = _avatar_img(r.get("pin"))
         body += (
             f"<tr><td>{avatar}{html.escape(r['name'])}</td><td>{r['games']}</td>"
             f"<td>{r['avg']:,}</td><td>{r['best']:,}</td>"
@@ -110,6 +116,32 @@ def _players_html(rows: list[dict]) -> str:
             "<th title='timed-out / skipped rounds'>Chokes</th>"
             "<th title='avg time per round'>Avg time</th>"
             f"<th>Per map</th></tr></thead><tbody>{body}</tbody></table>")
+
+
+def _map_players_html(maps: dict[str, list[dict]]) -> str:
+    """One ranked player table per map, best-avg-first, so you can read who's
+    strongest where. Same columns as the Maps summary (Games/Avg/Best) plus the
+    Players table's Dist-off."""
+    if not maps:
+        return "<p>No games yet.</p>"
+    out = []
+    for m, rows in maps.items():
+        ranks = _rank_cells([r["avg"] for r in rows])
+        body = "".join(
+            f"<tr><td>{ranks[i]}</td>"
+            f"<td>{_avatar_img(r.get('pin'))}{html.escape(r['name'])}</td>"
+            f"<td>{r['games']}</td><td>{r['avg']:,}</td><td>{r['best']:,}</td>"
+            f"<td>{round(r['avg_dist'] / 1000):,} km</td></tr>"
+            for i, r in enumerate(rows)
+        )
+        out.append(
+            f"<h3>{html.escape(m)}</h3>"
+            "<table><thead><tr><th>#</th><th>Player</th><th>Games</th>"
+            "<th>Avg</th><th>Best</th>"
+            "<th title='avg distance off'>Dist off</th></tr></thead>"
+            f"<tbody>{body}</tbody></table>"
+        )
+    return "".join(out)
 
 
 def _countries_html(rows: list[dict]) -> str:
@@ -148,6 +180,7 @@ FRAGMENTS = {
     "season": lambda d: _season_html(store.season_leaderboard(d)),
     "alltime": lambda d: _board_html(store.all_time_leaderboard(d)),
     "maps": lambda d: _maps_html(store.map_stats(d)),
+    "mapplayers": lambda d: _map_players_html(store.map_player_stats(d)),
     "players": lambda d: _players_html(store.player_stats(d)),
     "countries": lambda d: _countries_html(store.player_countries(d)),
     "roundwins": lambda d: _roundwins_html(store.round_wins(d)),

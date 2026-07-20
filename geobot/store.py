@@ -289,6 +289,47 @@ def player_stats(data: dict | None = None) -> list[dict]:
     return rows
 
 
+def map_player_stats(data: dict | None = None) -> dict[str, list[dict]]:
+    """Per-map player rankings: {map: [{'name','games','avg','best','avg_dist','pin'}]},
+    each list sorted by avg score desc (best-first) so you can see who's strongest on
+    each map. Distance averages over rounds that recorded a `dist`; players with none
+    show 0. Maps are keyed in alphabetical order."""
+    data = data if data is not None else _load()
+    token_map = {c["token"]: (c.get("map") or "normal") for c in data["challenges"]}
+    by: dict[str, dict] = {}  # map -> playerkey -> agg
+    for s in data["scores"]:
+        m = token_map.get(s["token"], "normal")
+        key = s["user_id"] or s["name"]
+        p = by.setdefault(m, {}).setdefault(
+            key,
+            {"name": s["name"], "games": 0, "_total": 0, "best": 0,
+             "pin": None, "_dist": 0.0, "_dist_n": 0},
+        )
+        p["name"] = s["name"]
+        p["games"] += 1
+        p["_total"] += s["score"]
+        p["best"] = max(p["best"], s["score"])
+        p["pin"] = p["pin"] or s.get("pin")
+        for g in s.get("guesses") or []:
+            if g.get("dist") is not None:
+                p["_dist"] += g["dist"]; p["_dist_n"] += 1
+    out: dict[str, list[dict]] = {}
+    for m in sorted(by):
+        rows = [
+            {
+                "name": p["name"], "games": p["games"],
+                "avg": round(p["_total"] / p["games"]),
+                "best": p["best"],
+                "avg_dist": round(p["_dist"] / p["_dist_n"]) if p["_dist_n"] else 0,
+                "pin": p["pin"],
+            }
+            for p in by[m].values()
+        ]
+        rows.sort(key=lambda r: r["avg"], reverse=True)
+        out[m] = rows
+    return out
+
+
 def player_countries(data: dict | None = None, min_rounds: int = 2) -> list[dict]:
     """Each player's best & worst country by average round points, joining their
     per-round `guesses` to the round's actual-location country:
@@ -404,6 +445,10 @@ if __name__ == "__main__":  # python -m geobot.store — self-check
         assert board[0]["name"] == "A" and board[0]["total"] == 2750, board
         ps = {p["name"]: p for p in player_stats()}
         assert ps["A"]["games"] == 2 and ps["A"]["per_map"]["fast"]["best"] == 1000, ps
+        # per-map rankings: normal has A (1000) above B (500); fast has only A
+        mps = map_player_stats()
+        assert [r["name"] for r in mps["normal"]] == ["A", "B"], mps
+        assert mps["fast"][0]["avg"] == 1000 and len(mps["fast"]) == 1, mps
 
         # data= seam: functions accept an explicit dict (how the DB app feeds them);
         # weight is read per-challenge, not from any global map table.
@@ -476,6 +521,11 @@ if __name__ == "__main__":  # python -m geobot.store — self-check
         assert ps["A"]["pin"] == "http://x/a.png", ps["A"]
         # legacy row still aggregates; guess-derived fields are 0, no crash
         assert ps["C"]["games"] == 1 and ps["C"]["perfects"] == 0 and ps["C"]["avg_dist"] == 0, ps["C"]
+
+        # per-map rankings carry per-map avg distance (A's 5 normal-round dists)
+        mps = {r["name"]: r for r in map_player_stats()["normal"]}
+        assert mps["A"]["avg_dist"] == round(20900 / 5), mps["A"]
+        assert mps["C"]["avg_dist"] == 0, mps["C"]  # legacy row, no dist
 
         pc = {r["name"]: r for r in player_countries()}  # min_rounds=2 -> us & fr qualify, de dropped
         assert pc["A"]["best_cc"] == "us" and pc["A"]["best_avg"] == 4500, pc["A"]
