@@ -26,11 +26,25 @@ def _flag(cc: str) -> str:
     return "".join(chr(0x1F1E6 + ord(c) - 97) for c in cc)
 
 
+def _rank_cells(values: list) -> list[str]:
+    """Standard competition ranking ('1224'): equal values share a rank and the
+    next distinct value skips the tied positions — so a tie for 1st yields two
+    🥇 and the following player is 3rd. Rows must already be sorted best-first.
+    Returns the display cell per row (medal for ranks 1-3, else 'N.')."""
+    cells, rank = [], 0
+    for i, v in enumerate(values):
+        if i == 0 or v != values[i - 1]:
+            rank = i + 1
+        cells.append(MEDALS[rank - 1] if rank <= 3 else f"{rank}.")
+    return cells
+
+
 def _board_html(rows: list[dict]) -> str:
     if not rows:
         return "<p>No scores yet.</p>"
+    ranks = _rank_cells([r["total"] for r in rows])
     body = "".join(
-        f"<tr><td>{MEDALS[i] if i < 3 else f'{i + 1}.'}</td>"
+        f"<tr><td>{ranks[i]}</td>"
         f"<td>{html.escape(r['name'])}</td>"
         f"<td>{r['total']:,}</td><td>{r['rounds']}</td></tr>"
         for i, r in enumerate(rows)
@@ -42,8 +56,9 @@ def _board_html(rows: list[dict]) -> str:
 def _season_html(rows: list[dict]) -> str:
     if not rows:
         return "<p>No scores yet.</p>"
+    ranks = _rank_cells([r["points_finished"] for r in rows])
     body = "".join(
-        f"<tr><td>{MEDALS[i] if i < 3 else f'{i + 1}.'}</td>"
+        f"<tr><td>{ranks[i]}</td>"
         f"<td>{html.escape(r['name'])}</td><td>{r['points']}</td>"
         f"<td>{r['points_finished']}</td><td>{r['weeks_played']}</td></tr>"
         for i, r in enumerate(rows)
@@ -116,8 +131,9 @@ def _countries_html(rows: list[dict]) -> str:
 def _roundwins_html(rows: list[dict]) -> str:
     if not rows:
         return "<p>No round data yet.</p>"
+    ranks = _rank_cells([r["wins"] for r in rows])
     body = "".join(
-        f"<tr><td>{MEDALS[i] if i < 3 else f'{i + 1}.'}</td>"
+        f"<tr><td>{ranks[i]}</td>"
         f"<td>{html.escape(r['name'])}</td>"
         f"<td>{r['wins']}</td><td>{r['rounds']}</td></tr>"
         for i, r in enumerate(rows)
@@ -141,3 +157,11 @@ FRAGMENTS = {
 def render(key: str, data: dict) -> str | None:
     fn = FRAGMENTS.get(key)
     return fn(data) if fn else None
+
+
+if __name__ == "__main__":  # python -m geobot.stats_html — self-check
+    assert _rank_cells([10, 10, 8, 5]) == ["🥇", "🥇", "🥉", "4."]      # tie for 1st -> next is 3rd
+    assert _rank_cells([10, 8, 8, 8, 5]) == ["🥇", "🥈", "🥈", "🥈", "5."]  # 3-way tie for 2nd
+    assert _rank_cells([5, 4, 3]) == ["🥇", "🥈", "🥉"]
+    assert _rank_cells([]) == []
+    print("stats_html ok")

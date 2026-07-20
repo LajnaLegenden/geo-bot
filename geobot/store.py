@@ -145,7 +145,8 @@ def season_leaderboard(data: dict | None = None, today: date | None = None) -> l
     """Weekly ranking points summed across weeks: 1st=4, 2nd=2, 3rd=1.
     'points' counts every week incl. the current (provisional) one;
     'points_finished' counts only weeks that have already ended.
-    Sorted by 'points' desc.
+    Sorted by 'points_finished' (the stable rating) desc, tie-broken by live
+    'points' — so the medal/rank column matches the table's default view.
     Returns [{'name', 'points', 'points_finished', 'weeks_played'}].
 
     Each week is ranked by the same weighted board as the weekly leaderboard.
@@ -184,7 +185,7 @@ def season_leaderboard(data: dict | None = None, today: date | None = None) -> l
                 "weeks_played": len(wks),
             }
         )
-    rows.sort(key=lambda r: r["points"], reverse=True)
+    rows.sort(key=lambda r: (r["points_finished"], r["points"]), reverse=True)
     return rows
 
 

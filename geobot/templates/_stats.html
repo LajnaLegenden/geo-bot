@@ -1,20 +1,23 @@
 {# The stats grid, shared by the private league page and the public /s/<slug> page.
    The macro owns the section list; callers pass the fragment endpoint + its args. #}
+{# Each row: key, heading, default sort column (0-based), direction (-1 desc / 1 asc).
+   sort.js reads data-sort-col/dir off the box and applies it on load + each poll. #}
 {% set STAT_SECTIONS = [
-  ('weekly', '🏆 This week'),
-  ('season', '🏅 Season points'),
-  ('alltime', '👑 All-time'),
-  ('maps', '🗺️ Maps'),
-  ('players', '🧑 Players'),
-  ('countries', '🌍 Best / worst countries'),
-  ('roundwins', '⚔️ Round wins'),
+  ('weekly',    '🏆 This week',              2, -1),
+  ('season',    '🏅 Season points',          3, -1),
+  ('alltime',   '👑 All-time',               2, -1),
+  ('maps',      '🗺️ Maps',                   1, -1),
+  ('players',   '🧑 Players',                1, -1),
+  ('countries', '🌍 Best / worst countries', 3, -1),
+  ('roundwins', '⚔️ Round wins',             2, -1),
 ] %}
 {% macro stats_grid(endpoint, kwargs) %}
 <div class="grid stats">
-  {% for key, heading in STAT_SECTIONS %}
+  {% for key, heading, sortcol, sortdir in STAT_SECTIONS %}
   <section{% if key == 'players' %} class="wide"{% endif %}>
     <h2>{{ heading }}</h2>
-    <div hx-get="{{ url_for(endpoint, key=key, **kwargs) }}" hx-trigger="load, every 60s">…</div>
+    <div hx-get="{{ url_for(endpoint, key=key, **kwargs) }}" hx-trigger="load, every 60s"
+         data-sort-col="{{ sortcol }}" data-sort-dir="{{ sortdir }}">…</div>
   </section>
   {% endfor %}
 </div>
