@@ -97,31 +97,26 @@ def _players_html(rows: list[dict]) -> str:
         return "<p>No players yet.</p>"
     body = ""
     for r in rows:
-        splits = ", ".join(
-            f"{html.escape(m)} {v['avg']:,} avg ({v['games']})"
-            for m, v in r["per_map"].items()
-        )
         avatar = _avatar_img(r.get("pin"))
         body += (
             f"<tr><td>{avatar}{html.escape(r['name'])}</td><td>{r['games']}</td>"
             f"<td>{r['avg']:,}</td><td>{r['best']:,}</td>"
             f"<td>{round(r['avg_dist'] / 1000):,} km</td>"
             f"<td>{r['perfects']}</td><td>{r['chokes']}</td>"
-            f"<td>{r['avg_time']}s</td>"
-            f"<td class='per-map'>{splits}</td></tr>"
+            f"<td>{r['avg_time']}s</td></tr>"
         )
     return ("<table><thead><tr><th>Player</th><th>Games</th><th>Avg</th><th>Best</th>"
             "<th title='avg distance off'>Dist off</th>"
             "<th title='5000-point rounds'>Perfects</th>"
             "<th title='timed-out / skipped rounds'>Chokes</th>"
             "<th title='avg time per round'>Avg time</th>"
-            f"<th>Per map</th></tr></thead><tbody>{body}</tbody></table>")
+            f"</tr></thead><tbody>{body}</tbody></table>")
 
 
 def _map_players_html(maps: dict[str, list[dict]]) -> str:
     """One ranked player table per map, best-avg-first, so you can read who's
     strongest where. Same columns as the Maps summary (Games/Avg/Best) plus the
-    Players table's Dist-off."""
+    Players table's Dist-off and Avg-time."""
     if not maps:
         return "<p>No games yet.</p>"
     out = []
@@ -131,14 +126,16 @@ def _map_players_html(maps: dict[str, list[dict]]) -> str:
             f"<tr><td>{ranks[i]}</td>"
             f"<td>{_avatar_img(r.get('pin'))}{html.escape(r['name'])}</td>"
             f"<td>{r['games']}</td><td>{r['avg']:,}</td><td>{r['best']:,}</td>"
-            f"<td>{round(r['avg_dist'] / 1000):,} km</td></tr>"
+            f"<td>{round(r['avg_dist'] / 1000):,} km</td>"
+            f"<td>{r['avg_time']}s</td></tr>"
             for i, r in enumerate(rows)
         )
         out.append(
             f"<h3>{html.escape(m)}</h3>"
             "<table><thead><tr><th>#</th><th>Player</th><th>Games</th>"
             "<th>Avg</th><th>Best</th>"
-            "<th title='avg distance off'>Dist off</th></tr></thead>"
+            "<th title='avg distance off'>Dist off</th>"
+            "<th title='avg time per round'>Avg time</th></tr></thead>"
             f"<tbody>{body}</tbody></table>"
         )
     return "".join(out)

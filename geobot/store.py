@@ -225,20 +225,20 @@ def map_stats(data: dict | None = None) -> list[dict]:
 
 def player_stats(data: dict | None = None) -> list[dict]:
     """Per-player raw-score stats, sorted by games desc:
-    [{'name', 'games', 'avg', 'best', 'per_map': {...}, 'pin',
+    [{'name', 'games', 'avg', 'best', 'pin',
       'avg_dist', 'perfects', 'chokes', 'avg_time'}].
 
     The guess-derived fields (avg_dist/perfects/chokes/avg_time) come from stored
-    per-round `guesses`; rows predating guess capture contribute nothing to them."""
+    per-round `guesses`; rows predating guess capture contribute nothing to them.
+    Per-map splits live in their own section — see map_player_stats."""
     data = data if data is not None else _load()
-    token_map = {c["token"]: (c.get("map") or "normal") for c in data["challenges"]}
     by: dict[str, dict] = {}
     for s in data["scores"]:
         key = s["user_id"] or s["name"]
         p = by.setdefault(
             key,
             {
-                "name": s["name"], "games": 0, "_total": 0, "best": 0, "_maps": {},
+                "name": s["name"], "games": 0, "_total": 0, "best": 0,
                 "pin": None, "_dist": 0.0, "_dist_n": 0, "_t": 0, "_t_n": 0,
                 "perfects": 0, "chokes": 0,
             },
@@ -248,11 +248,6 @@ def player_stats(data: dict | None = None) -> list[dict]:
         p["_total"] += s["score"]
         p["best"] = max(p["best"], s["score"])
         p["pin"] = p["pin"] or s.get("pin")
-        m = token_map.get(s["token"], "normal")
-        mm = p["_maps"].setdefault(m, {"games": 0, "_total": 0, "best": 0})
-        mm["games"] += 1
-        mm["_total"] += s["score"]
-        mm["best"] = max(mm["best"], s["score"])
         for g in s.get("guesses") or []:
             if g.get("pts") == 5000:
                 p["perfects"] += 1
@@ -264,21 +259,12 @@ def player_stats(data: dict | None = None) -> list[dict]:
                 p["_t"] += g["t"]; p["_t_n"] += 1
     rows = []
     for p in sorted(by.values(), key=lambda p: p["games"], reverse=True):
-        per_map = {
-            m: {
-                "games": v["games"],
-                "avg": round(v["_total"] / v["games"]),
-                "best": v["best"],
-            }
-            for m, v in sorted(p["_maps"].items())
-        }
         rows.append(
             {
                 "name": p["name"],
                 "games": p["games"],
                 "avg": round(p["_total"] / p["games"]),
                 "best": p["best"],
-                "per_map": per_map,
                 "pin": p["pin"],
                 "avg_dist": round(p["_dist"] / p["_dist_n"]) if p["_dist_n"] else 0,
                 "perfects": p["perfects"],
@@ -290,9 +276,10 @@ def player_stats(data: dict | None = None) -> list[dict]:
 
 
 def map_player_stats(data: dict | None = None) -> dict[str, list[dict]]:
-    """Per-map player rankings: {map: [{'name','games','avg','best','avg_dist','pin'}]},
-    each list sorted by avg score desc (best-first) so you can see who's strongest on
-    each map. Distance averages over rounds that recorded a `dist`; players with none
+    """Per-map player rankings:
+    {map: [{'name','games','avg','best','avg_dist','avg_time','pin'}]}, each list
+    sorted by avg score desc (best-first) so you can see who's strongest on each map.
+    Distance/time average over rounds that recorded a `dist`/`t`; players with none
     show 0. Maps are keyed in alphabetical order."""
     data = data if data is not None else _load()
     token_map = {c["token"]: (c.get("map") or "normal") for c in data["challenges"]}
@@ -303,7 +290,7 @@ def map_player_stats(data: dict | None = None) -> dict[str, list[dict]]:
         p = by.setdefault(m, {}).setdefault(
             key,
             {"name": s["name"], "games": 0, "_total": 0, "best": 0,
-             "pin": None, "_dist": 0.0, "_dist_n": 0},
+             "pin": None, "_dist": 0.0, "_dist_n": 0, "_t": 0, "_t_n": 0},
         )
         p["name"] = s["name"]
         p["games"] += 1
@@ -313,6 +300,8 @@ def map_player_stats(data: dict | None = None) -> dict[str, list[dict]]:
         for g in s.get("guesses") or []:
             if g.get("dist") is not None:
                 p["_dist"] += g["dist"]; p["_dist_n"] += 1
+            if g.get("t") is not None:
+                p["_t"] += g["t"]; p["_t_n"] += 1
     out: dict[str, list[dict]] = {}
     for m in sorted(by):
         rows = [
@@ -321,6 +310,7 @@ def map_player_stats(data: dict | None = None) -> dict[str, list[dict]]:
                 "avg": round(p["_total"] / p["games"]),
                 "best": p["best"],
                 "avg_dist": round(p["_dist"] / p["_dist_n"]) if p["_dist_n"] else 0,
+                "avg_time": round(p["_t"] / p["_t_n"]) if p["_t_n"] else 0,
                 "pin": p["pin"],
             }
             for p in by[m].values()
@@ -444,7 +434,7 @@ if __name__ == "__main__":  # python -m geobot.store — self-check
         board = all_time_leaderboard()
         assert board[0]["name"] == "A" and board[0]["total"] == 2750, board
         ps = {p["name"]: p for p in player_stats()}
-        assert ps["A"]["games"] == 2 and ps["A"]["per_map"]["fast"]["best"] == 1000, ps
+        assert ps["A"]["games"] == 2 and ps["A"]["best"] == 1000, ps
         # per-map rankings: normal has A (1000) above B (500); fast has only A
         mps = map_player_stats()
         assert [r["name"] for r in mps["normal"]] == ["A", "B"], mps
@@ -522,10 +512,11 @@ if __name__ == "__main__":  # python -m geobot.store — self-check
         # legacy row still aggregates; guess-derived fields are 0, no crash
         assert ps["C"]["games"] == 1 and ps["C"]["perfects"] == 0 and ps["C"]["avg_dist"] == 0, ps["C"]
 
-        # per-map rankings carry per-map avg distance (A's 5 normal-round dists)
+        # per-map rankings carry per-map avg distance + time (A's 5 normal rounds)
         mps = {r["name"]: r for r in map_player_stats()["normal"]}
         assert mps["A"]["avg_dist"] == round(20900 / 5), mps["A"]
-        assert mps["C"]["avg_dist"] == 0, mps["C"]  # legacy row, no dist
+        assert mps["A"]["avg_time"] == 15, mps["A"]  # (10+20+30+15+0)/5
+        assert mps["C"]["avg_dist"] == 0 and mps["C"]["avg_time"] == 0, mps["C"]  # legacy, no guesses
 
         pc = {r["name"]: r for r in player_countries()}  # min_rounds=2 -> us & fr qualify, de dropped
         assert pc["A"]["best_cc"] == "us" and pc["A"]["best_avg"] == 4500, pc["A"]

@@ -117,6 +117,5 @@ code { background: #11141d; border: 1px solid var(--border); border-radius: 5px;
 .grid.stats section { background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 1rem 1.25rem; min-width: 0; }
 .grid.stats .wide { grid-column: 1 / -1; }
-.per-map { text-align: left; color: var(--muted); font-size: .8rem; }
 .hint { color: var(--muted); font-size: .8rem; margin: -.25rem 0 .5rem; }
 @media (max-width: 640px) { .grid.stats { grid-template-columns: 1fr; } }
