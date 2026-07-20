@@ -117,25 +117,28 @@ def leaderboard_message(
 
 
 def challenge_variables(url: str) -> dict:
+    # Workflow Builder path: the URL + its label are standalone variables so the
+    # workflow can bind them to a message button (Block Kit buttons only exist on
+    # the incoming-webhook path). One button per message, so both this and the
+    # leaderboard use the same variable names — a challenge post fills them with
+    # the challenge link, a leaderboard post with the stats link.
     return {
         "title": "🌍 Today's GeoGuessr challenge",
-        "body": f"Play now: {url}\nScores count toward this week's board (resets Monday).",
+        "body": "Scores count toward this week's board (resets Monday).",
+        "button_text": "▶️ Play challenge",
+        "button_url": url,
     }
 
 
-def leaderboard_variables(
-    rows: list[dict], stats_url: str | None = None, challenge_url: str | None = None
-) -> dict:
-    lines = _leaderboard_lines(rows)
+def leaderboard_variables(rows: list[dict], stats_url: str | None = None) -> dict:
     v = {
         "title": "🏆 This week's leaderboard",
-        "body": "\n".join(lines) if lines else "No scores yet this week.",
+        "body": "\n".join(_leaderboard_lines(rows)) if rows else "No scores yet this week.",
         "players": _players_played(len(rows)) if rows else "No scores yet this week.",
     }
-    if challenge_url:
-        v["challenge_url"] = challenge_url
-    if stats_url:
-        v["stats_url"] = stats_url
+    if stats_url:  # single button on the leaderboard -> the public stats page
+        v["button_text"] = "📊 Stats"
+        v["button_url"] = stats_url
     return v
 
 

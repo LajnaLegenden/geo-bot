@@ -40,9 +40,25 @@ def test_leaderboard_no_urls_no_actions():
     assert not any(b["type"] == "context" for b in blocks)  # no count when empty
 
 
+def test_challenge_variables_button():
+    v = slack.challenge_variables("https://gg/c/xyz")
+    assert v["button_url"] == "https://gg/c/xyz" and v["button_text"]
+
+
+def test_leaderboard_variables_button_is_stats():
+    rows = [{"name": "A", "total": 10, "rounds": 1}]
+    v = slack.leaderboard_variables(rows, stats_url="https://app/s/league")
+    assert v["button_url"] == "https://app/s/league" and v["button_text"] == "📊 Stats"
+    assert "1 player played this week" in v["players"]
+    # no stats url -> no button variables (so the workflow button isn't left empty)
+    assert "button_url" not in slack.leaderboard_variables(rows, stats_url=None)
+
+
 if __name__ == "__main__":
     test_challenge_has_play_button()
     test_leaderboard_buttons_and_count()
     test_leaderboard_singular_count()
     test_leaderboard_no_urls_no_actions()
+    test_challenge_variables_button()
+    test_leaderboard_variables_button_is_stats()
     print("ok")
