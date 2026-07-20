@@ -47,8 +47,13 @@ schedules itself).
 
 1. Register an account, then **Credentials** → add a GeoGuessr cookie (the `_ncfa`
    value from a logged-in browser: DevTools → Application → Cookies) and a Slack
-   Incoming Webhook URL (api.slack.com/apps → Incoming Webhooks). Slack Workflow
-   Builder triggers are supported too — pick "Workflow Builder" as the mode.
+   Incoming Webhook URL (api.slack.com/apps → **Incoming Webhooks** — a minimal
+   Slack app, *not* a bot: no token, no callback endpoint). Pick "Incoming
+   Webhook" as the mode. The app builds the whole message, so the challenge post
+   and the leaderboard get real clickable buttons (▶️ Play challenge, 📊 Stats).
+   Slack Workflow Builder triggers are supported too — pick "Workflow Builder" as
+   the mode — but that path renders links, not app-built buttons (Workflow buttons
+   can't take the per-day challenge URL), and you wire the message in Slack's UI.
 2. **Maps** → paste a GeoGuessr map URL/ID and save it.
 3. **New league** → pick the channel + GeoGuessr account, set the **leaderboard
    post** schedule + timezone and the **pull interval** (how often scores refresh
@@ -59,8 +64,11 @@ schedules itself).
    waiting for the schedule.
 
 Stats are private by default; a league with a public slug is viewable at
-`/s/<slug>`. `weight` scales a game's scores in the combined board so an easier
-game doesn't dominate (`1.0` = unweighted).
+`/s/<slug>`. For the leaderboard's **📊 Stats** button to appear, set the
+`BASE_URL` env var (the app's public URL) *and* give the league a public slug —
+without both, the button is omitted (no dead link). `weight` scales a game's
+scores in the combined board so an easier game doesn't dominate (`1.0` =
+unweighted).
 
 ## Importing existing data
 

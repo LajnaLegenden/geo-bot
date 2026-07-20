@@ -30,7 +30,7 @@ leaderboard/season points continue unbroken.
 
 1. New resource → this repo, build pack **Dockerfile**.
 2. **Storage:** add a persistent volume mounted at **`/data`**. *(Critical — without it every redeploy wipes the DB. `GEO_DB` defaults to `/data/geobot.db`.)*
-3. **Environment variables:** `GEO_FERNET_KEY`, `SECRET_KEY` (both stable). Optionally `PORT` (default 8080).
+3. **Environment variables:** `GEO_FERNET_KEY`, `SECRET_KEY` (both stable). Optionally `PORT` (default 8080) and `BASE_URL` (the app's public URL, e.g. `https://geo.example.com`) — set it so the leaderboard's **📊 Stats** button links to the public stats page; omitted if unset.
 4. Add a **Domain** → container port **8080**.
 5. Deploy. On boot the schema migrates itself; you'll get the login page.
 6. You can now **remove the old env vars** (`GEO_NCFA`, `SLACK_*`, `GITHUB_REPO`, `GITHUB_TOKEN`) — the app doesn't use them; credentials live inside the app.

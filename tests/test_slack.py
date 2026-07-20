@@ -1,0 +1,48 @@
+"""Offline checks for the Slack message builders — pure functions, no network,
+so they honour the 'never make real Slack calls' rule. Run: python -m tests.test_slack
+(from the repo root) or pytest."""
+from geobot import slack
+
+
+def _action_urls(blocks):
+    return [e.get("url") for b in blocks if b["type"] == "actions" for e in b["elements"]]
+
+
+def test_challenge_has_play_button():
+    url = "https://www.geoguessr.com/challenge/abc123"
+    _, blocks = slack.challenge_message(url)
+    assert url in _action_urls(blocks)
+
+
+def test_leaderboard_buttons_and_count():
+    rows = [
+        {"name": "A", "total": 100, "rounds": 2},
+        {"name": "B", "total": 50, "rounds": 1},
+    ]
+    _, blocks = slack.leaderboard_message(
+        rows, stats_url="https://app/s/league", challenge_url="https://gg/c/xyz"
+    )
+    ctx = [b for b in blocks if b["type"] == "context"]
+    assert ctx and "2 players played this week" in ctx[0]["elements"][0]["text"]
+    urls = _action_urls(blocks)
+    assert "https://gg/c/xyz" in urls and "https://app/s/league" in urls
+
+
+def test_leaderboard_singular_count():
+    _, blocks = slack.leaderboard_message([{"name": "A", "total": 10, "rounds": 1}])
+    ctx = [b for b in blocks if b["type"] == "context"]
+    assert "1 player played this week" in ctx[0]["elements"][0]["text"]
+
+
+def test_leaderboard_no_urls_no_actions():
+    _, blocks = slack.leaderboard_message([], None, None)
+    assert not any(b["type"] == "actions" for b in blocks)
+    assert not any(b["type"] == "context" for b in blocks)  # no count when empty
+
+
+if __name__ == "__main__":
+    test_challenge_has_play_button()
+    test_leaderboard_buttons_and_count()
+    test_leaderboard_singular_count()
+    test_leaderboard_no_urls_no_actions()
+    print("ok")

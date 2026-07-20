@@ -42,6 +42,18 @@ def cookie_expired_message() -> tuple[str, list]:
     return text, blocks
 
 
+def _play_button(url: str) -> dict:
+    # A button with a `url` (and no action_id) is a link-button: it just opens
+    # the URL, so it needs no interactivity endpoint / bot — works over an
+    # incoming webhook.
+    return {
+        "type": "button",
+        "text": {"type": "plain_text", "text": "▶️ Play challenge", "emoji": True},
+        "url": url,
+        "style": "primary",
+    }
+
+
 def challenge_message(url: str) -> tuple[str, list]:
     text = f":earth_africa: Today's GeoGuessr challenge is up! {url}"
     blocks = [
@@ -49,9 +61,10 @@ def challenge_message(url: str) -> tuple[str, list]:
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f":earth_africa: *Today's GeoGuessr challenge*\n<{url}|Play now>  — scores count toward this week's board (resets Monday).",
+                "text": ":earth_africa: *Today's GeoGuessr challenge*\nScores count toward this week's board (resets Monday).",
             },
-        }
+        },
+        {"type": "actions", "elements": [_play_button(url)]},
     ]
     return text, blocks
 
@@ -66,7 +79,13 @@ def _leaderboard_lines(rows: list[dict], bold: bool = False) -> list[str]:
     return lines
 
 
-def leaderboard_message(rows: list[dict]) -> tuple[str, list]:
+def _players_played(n: int) -> str:
+    return f"{n} player{'' if n == 1 else 's'} played this week"
+
+
+def leaderboard_message(
+    rows: list[dict], stats_url: str | None = None, challenge_url: str | None = None
+) -> tuple[str, list]:
     lines = _leaderboard_lines(rows, bold=True)
     body = "\n".join(lines) if lines else "_No scores yet this week._"
     text = "This week's leaderboard"
@@ -77,6 +96,23 @@ def leaderboard_message(rows: list[dict]) -> tuple[str, list]:
         },
         {"type": "section", "text": {"type": "mrkdwn", "text": body}},
     ]
+    if rows:
+        blocks.append(
+            {"type": "context", "elements": [
+                {"type": "mrkdwn", "text": _players_played(len(rows))},
+            ]}
+        )
+    buttons = []
+    if challenge_url:
+        buttons.append(_play_button(challenge_url))
+    if stats_url:
+        buttons.append({
+            "type": "button",
+            "text": {"type": "plain_text", "text": "📊 Stats", "emoji": True},
+            "url": stats_url,
+        })
+    if buttons:
+        blocks.append({"type": "actions", "elements": buttons})
     return text, blocks
 
 
@@ -87,12 +123,20 @@ def challenge_variables(url: str) -> dict:
     }
 
 
-def leaderboard_variables(rows: list[dict]) -> dict:
+def leaderboard_variables(
+    rows: list[dict], stats_url: str | None = None, challenge_url: str | None = None
+) -> dict:
     lines = _leaderboard_lines(rows)
-    return {
+    v = {
         "title": "🏆 This week's leaderboard",
         "body": "\n".join(lines) if lines else "No scores yet this week.",
+        "players": _players_played(len(rows)) if rows else "No scores yet this week.",
     }
+    if challenge_url:
+        v["challenge_url"] = challenge_url
+    if stats_url:
+        v["stats_url"] = stats_url
+    return v
 
 
 def cookie_expired_variables() -> dict:

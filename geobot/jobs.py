@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 from zoneinfo import ZoneInfo
 
 from . import db, queries, store, transports
@@ -33,6 +34,19 @@ def _transport(conn, league):
     meta = json.loads(cred["meta"]) if cred["meta"] else {}
     dest = {"url": db.decrypt(cred["secret"]), **meta}
     return transports.get(cred["kind"]), dest
+
+
+def _links(league, data) -> dict:
+    """Clickable-button targets for the leaderboard post. Stats needs the app's
+    public URL (BASE_URL env) + the league's opted-in public slug; omitted (None)
+    if either is missing so we never post a dead link. Challenges are ORDER BY
+    date, so the last one is the newest."""
+    base = (os.environ.get("BASE_URL") or "").rstrip("/")
+    stats_url = (
+        f"{base}/s/{league['public_slug']}" if base and league["public_slug"] else None
+    )
+    challenge_url = data["challenges"][-1]["url"] if data["challenges"] else None
+    return {"stats_url": stats_url, "challenge_url": challenge_url}
 
 
 def post_challenge(league_id: int, game_id: int) -> str:
@@ -109,6 +123,7 @@ def post_leaderboard(league_id: int) -> str:
         transport.send_alert(dest, "cookie_expired")
         return "GeoGuessr cookie invalid"
     n = _fetch_scores(conn, league_id, gg)  # courtesy pull before posting
-    rows = store.weekly_leaderboard(queries.load_league_data(conn, league_id))
-    transport.send_leaderboard(dest, rows, league["name"])
+    data = queries.load_league_data(conn, league_id)
+    rows = store.weekly_leaderboard(data)
+    transport.send_leaderboard(dest, rows, league["name"], _links(league, data))
     return f"pulled {n}, posted leaderboard"

@@ -20,8 +20,14 @@ class SlackTransport:
     def send_challenge(self, dest, url, league):
         self._send(dest, slack.challenge_message(url), slack.challenge_variables(url))
 
-    def send_leaderboard(self, dest, rows, league):
-        self._send(dest, slack.leaderboard_message(rows), slack.leaderboard_variables(rows))
+    def send_leaderboard(self, dest, rows, league, links=None):
+        links = links or {}
+        su, cu = links.get("stats_url"), links.get("challenge_url")
+        self._send(
+            dest,
+            slack.leaderboard_message(rows, su, cu),
+            slack.leaderboard_variables(rows, su, cu),
+        )
 
     def send_alert(self, dest, kind):
         if kind == "cookie_expired":
