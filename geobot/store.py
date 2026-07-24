@@ -138,6 +138,30 @@ def weekly_leaderboard(data: dict | None = None) -> list[dict]:
     return _weighted_board(scores, _token_weight(data))
 
 
+def players_not_played_today(data: dict, today: str) -> list[str]:
+    """Names of this-week's players who haven't completed *every* challenge dated
+    `today` (a league-tz ISO date string). 'This week' = any score since Monday.
+    Returns [] when there are no challenges today or everyone's played them all —
+    the caller then sends nothing. Sorted case-insensitively for a stable message."""
+    today_tokens = {c["token"] for c in data["challenges"] if c["date"] == today}
+    if not today_tokens:
+        return []
+    start = week_start(date.fromisoformat(today))
+    names: dict[str, str] = {}       # player key -> latest display name
+    played: dict[str, set] = {}      # player key -> today's tokens they've scored
+    for s in data["scores"]:
+        if date.fromisoformat(s["date"]) >= start:
+            key = s["user_id"] or s["name"]
+            names[key] = s["name"]
+            played.setdefault(key, set())
+            if s["token"] in today_tokens:
+                played[key].add(s["token"])
+    return sorted(
+        (names[k] for k in names if len(played[k]) < len(today_tokens)),
+        key=str.lower,
+    )
+
+
 PODIUM = [4, 2, 1]  # points for a week's 1st, 2nd, 3rd
 
 
@@ -477,6 +501,25 @@ if __name__ == "__main__":  # python -m geobot.store — self-check
         assert sb["B"]["points"] == 6 and sb["B"]["points_finished"] == 2, sb  # 2 + 4(prov)
         assert sb["C"]["points"] == 1 and sb["C"]["points_finished"] == 1, sb
         assert sb["A"]["weeks_played"] == 2 and sb["C"]["weeks_played"] == 1, sb
+
+    # players_not_played_today: roster = anyone with a score this week; "played"
+    # requires *every* challenge dated `today`. 2026-07-24 is a Fri (week Mon = 20).
+    npt = {
+        "challenges": [
+            {"token": "d1", "date": "2026-07-24", "url": "", "map": "normal"},
+            {"token": "d2", "date": "2026-07-24", "url": "", "map": "fast"},
+            {"token": "e1", "date": "2026-07-21", "url": "", "map": "normal"},  # earlier this wk
+        ],
+        "scores": [
+            {"date": "2026-07-24", "token": "d1", "user_id": "a", "name": "A", "score": 1},
+            {"date": "2026-07-24", "token": "d2", "user_id": "a", "name": "A", "score": 1},  # A: both
+            {"date": "2026-07-24", "token": "d1", "user_id": "b", "name": "B", "score": 1},  # B: 1 of 2
+            {"date": "2026-07-21", "token": "e1", "user_id": "c", "name": "C", "score": 1},  # C: wk, not today
+        ],
+    }
+    assert players_not_played_today(npt, "2026-07-24") == ["B", "C"], \
+        players_not_played_today(npt, "2026-07-24")
+    assert players_not_played_today(npt, "2026-07-25") == []  # no challenges that day
 
     # guess-derived stats: per-player aggregates, countries, round wins, and
     # graceful degradation on a legacy row that has no guesses/countries.

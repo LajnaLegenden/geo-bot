@@ -31,6 +31,18 @@ def _pull_minutes(v) -> int:
     return n if n in (0, 15, 30, 60) else 60  # restrict to the dropdown's values
 
 
+def _reminder_fields():
+    """(cron_reminder, title, body) from the form. An unchecked "reminder_enabled"
+    box means reminders off -> cron_reminder=None (scheduler skips the job)."""
+    title = (request.form.get("reminder_title") or "").strip() or "⏰ Still to play today"
+    body = (request.form.get("reminder_body") or "").strip()
+    if not request.form.get("reminder_enabled"):
+        return None, title, body
+    h, m = _hm(request.form.get("reminder_time"))
+    cron = cron_builder.build_cron(request.form.getlist("reminder_days"), h, m)
+    return cron, title, body
+
+
 def _cred_lists(uid):
     return (
         queries.list_credentials(db.conn(), uid, kind="geoguessr"),
@@ -71,8 +83,10 @@ def create():
     tz = (request.form.get("tz") or "UTC").strip()
     slug = (request.form.get("public_slug") or "").strip() or None
     pull = _pull_minutes(request.form.get("pull_minutes"))
+    cron_reminder, rtitle, rbody = _reminder_fields()
     try:
-        lid = queries.add_league(db.conn(), uid, name, transport_id, geo_id, cron, tz, slug, pull)
+        lid = queries.add_league(db.conn(), uid, name, transport_id, geo_id, cron, tz,
+                                 slug, pull, cron_reminder, rtitle, rbody)
     except sqlite3.IntegrityError:
         db.conn().rollback()
         flash("That public slug is already taken.")
@@ -120,8 +134,10 @@ def update(league_id):
     tz = (request.form.get("tz") or "UTC").strip()
     slug = (request.form.get("public_slug") or "").strip() or None
     pull = _pull_minutes(request.form.get("pull_minutes"))
+    cron_reminder, rtitle, rbody = _reminder_fields()
     try:
-        queries.update_league(db.conn(), league_id, uid, name, transport_id, geo_id, cron, tz, slug, pull)
+        queries.update_league(db.conn(), league_id, uid, name, transport_id, geo_id, cron, tz,
+                              slug, pull, cron_reminder, rtitle, rbody)
     except sqlite3.IntegrityError:
         db.conn().rollback()
         flash("That public slug is already taken.")
@@ -163,4 +179,16 @@ def run_post(league_id):
         flash("Post: " + jobs.post_leaderboard(league_id))
     except Exception as e:  # surface network/API failures, don't 500
         flash(f"Post failed: {e}")
+    return redirect(url_for("leagues.detail", league_id=league_id))
+
+
+@bp.post("/<int:league_id>/remind-now")
+@login_required
+def run_reminder(league_id):
+    if not queries.get_league(db.conn(), league_id, session["uid"]):
+        abort(404)
+    try:
+        flash("Reminder: " + jobs.send_reminder(league_id))
+    except Exception as e:  # surface network/API failures, don't 500
+        flash(f"Reminder failed: {e}")
     return redirect(url_for("leagues.detail", league_id=league_id))

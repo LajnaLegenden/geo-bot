@@ -2,6 +2,8 @@
 {% block title %}{{ 'Edit' if league else 'New' }} league · GeoBot{% endblock %}
 {% block content %}
 {% set sched = cron.parse_cron(league['cron_results']) if league else {'days': ['mon','tue','wed','thu','fri'], 'hour': 18, 'minute': 15} %}
+{% set rem_on = league and league['cron_reminder'] %}
+{% set rem = cron.parse_cron(league['cron_reminder']) if rem_on else {'days': ['mon','tue','wed','thu','fri'], 'hour': 17, 'minute': 0} %}
 <div class="page-head"><h1>{{ 'Edit league' if league else 'New league' }}</h1></div>
 <div class="card">
   <form method="post" action="{{ url_for('leagues.update', league_id=league['id']) if league else url_for('leagues.create') }}">
@@ -44,6 +46,20 @@
     </label>
     <label>Timezone (IANA)<input name="tz" value="{{ league['tz'] if league else 'UTC' }}" placeholder="Europe/Stockholm"></label>
     <label>Public stats slug <span class="muted">(optional)</span><input name="public_slug" value="{{ (league['public_slug'] or '') if league else '' }}" placeholder="daily-geo"></label>
+
+    <fieldset>
+      <legend>Reminder <span class="muted">(names this week's players who haven't finished today's challenges)</span></legend>
+      <label class="chk"><input type="checkbox" name="reminder_enabled" {{ 'checked' if rem_on else '' }}> Send a reminder</label>
+      <fieldset class="days">
+        <legend>On</legend>
+        {% for d in cron.WEEKDAYS %}
+          <label class="chk"><input type="checkbox" name="reminder_days" value="{{ d }}" {{ 'checked' if d in rem['days'] else '' }}> {{ cron.LABELS[d] }}</label>
+        {% endfor %}
+      </fieldset>
+      <label>Reminder time<input type="time" name="reminder_time" value="{{ '%02d:%02d'|format(rem['hour'], rem['minute']) }}"></label>
+      <label>Reminder title<input name="reminder_title" value="{{ league['reminder_title'] if league else '⏰ Still to play today' }}"></label>
+      <label>Reminder message<textarea name="reminder_body" rows="2" placeholder="Don't forget today's challenge!">{{ league['reminder_body'] if league else '' }}</textarea></label>
+    </fieldset>
 
     <button class="btn" type="submit">{{ 'Save changes' if league else 'Create league' }}</button>
   </form>

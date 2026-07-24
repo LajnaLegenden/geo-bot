@@ -116,6 +116,20 @@ def leaderboard_message(
     return text, blocks
 
 
+def reminder_message(title: str, body: str, names: list[str]) -> tuple[str, list]:
+    """Nudge naming players who still owe today's challenge(s). `title`/`body` are
+    the league's UI-configured text; the names are appended to the body (plain
+    text — GeoGuessr nicks, not Slack @mentions)."""
+    people = ", ".join(names)
+    text = f"{title} — {people}"
+    full = f"{body}\n\n{people}" if body else people
+    blocks = [
+        {"type": "header", "text": {"type": "plain_text", "text": title}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": full}},
+    ]
+    return text, blocks
+
+
 def challenge_variables(url: str) -> dict:
     # Workflow Builder path: the URL + its label are standalone variables so the
     # workflow can bind them to a message button (Block Kit buttons only exist on
@@ -140,6 +154,15 @@ def leaderboard_variables(rows: list[dict], stats_url: str | None = None) -> dic
         v["button_text"] = "📊 Stats"
         v["button_url"] = stats_url
     return v
+
+
+def reminder_variables(title: str, body: str, names: list[str]) -> dict:
+    people = ", ".join(names)
+    return {
+        "title": title,
+        "body": f"{body}\n\n{people}" if body else people,
+        "players": people,
+    }
 
 
 def cookie_expired_variables() -> dict:

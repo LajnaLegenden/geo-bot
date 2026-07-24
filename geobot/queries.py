@@ -98,12 +98,15 @@ def delete_map(conn, map_pk, user_id) -> None:
 # --- leagues ----------------------------------------------------------------
 
 def add_league(conn, user_id, name, transport_cred_id, geo_cred_id,
-               cron_results, tz, public_slug, pull_minutes=60) -> int:
+               cron_results, tz, public_slug, pull_minutes=60,
+               cron_reminder=None, reminder_title="⏰ Still to play today",
+               reminder_body="") -> int:
     cur = conn.execute(
         "INSERT INTO leagues(user_id, name, transport_cred_id, geo_cred_id, "
-        "cron_results, tz, public_slug, pull_minutes) VALUES(?,?,?,?,?,?,?,?)",
+        "cron_results, tz, public_slug, pull_minutes, cron_reminder, "
+        "reminder_title, reminder_body) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
         (user_id, name, transport_cred_id, geo_cred_id, cron_results, tz,
-         public_slug, pull_minutes),
+         public_slug, pull_minutes, cron_reminder, reminder_title, reminder_body),
     )
     conn.commit()
     return cur.lastrowid
@@ -136,12 +139,16 @@ def all_leagues(conn) -> list[sqlite3.Row]:
 
 
 def update_league(conn, league_id, user_id, name, transport_cred_id, geo_cred_id,
-                  cron_results, tz, public_slug, pull_minutes=60) -> None:
+                  cron_results, tz, public_slug, pull_minutes=60,
+                  cron_reminder=None, reminder_title="⏰ Still to play today",
+                  reminder_body="") -> None:
     conn.execute(
         "UPDATE leagues SET name=?, transport_cred_id=?, geo_cred_id=?, "
-        "cron_results=?, tz=?, public_slug=?, pull_minutes=? WHERE id=? AND user_id=?",
+        "cron_results=?, tz=?, public_slug=?, pull_minutes=?, cron_reminder=?, "
+        "reminder_title=?, reminder_body=? WHERE id=? AND user_id=?",
         (name, transport_cred_id, geo_cred_id, cron_results, tz, public_slug,
-         pull_minutes, league_id, user_id),
+         pull_minutes, cron_reminder, reminder_title, reminder_body,
+         league_id, user_id),
     )
     conn.commit()
 

@@ -13,6 +13,7 @@
 <div class="card">
   <p><strong>Leaderboard post:</strong> {{ cron.describe(league['cron_results']) }} · {{ league['tz'] }}</p>
   <p><strong>Pull results:</strong> {% if league['pull_minutes'] %}every {{ league['pull_minutes'] }} min{% else %}off{% endif %}</p>
+  <p><strong>Reminder:</strong> {% if league['cron_reminder'] %}{{ cron.describe(league['cron_reminder']) }} · {{ league['tz'] }}{% else %}off{% endif %}</p>
   <p><strong>Stats:</strong>
     {% if league['public_slug'] %}public at <code>/s/{{ league['public_slug'] }}</code>{% else %}private{% endif %}
   </p>
@@ -24,6 +25,10 @@
     <form method="post" action="{{ url_for('leagues.run_post', league_id=league['id']) }}" class="inline">
       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
       <button class="btn-ghost" type="submit">Post to Slack now</button>
+    </form>
+    <form method="post" action="{{ url_for('leagues.run_reminder', league_id=league['id']) }}" class="inline">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <button class="btn-ghost" type="submit">Send reminder now</button>
     </form>
   </div>
 </div>
