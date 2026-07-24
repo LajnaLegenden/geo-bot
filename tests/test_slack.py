@@ -54,6 +54,16 @@ def test_leaderboard_variables_button_is_stats():
     assert "button_url" not in slack.leaderboard_variables(rows, stats_url=None)
 
 
+def test_reminder_names_in_message_and_variables():
+    names = ["Alice", "Bob"]
+    text, blocks = slack.reminder_message("⏰ Still to play", "Get in there!", names)
+    body = next(b["text"]["text"] for b in blocks if b["type"] == "section")
+    assert "Alice, Bob" in body and "Get in there!" in body
+    assert "Alice, Bob" in text
+    v = slack.reminder_variables("⏰ Still to play", "Get in there!", names)
+    assert v["players"] == "Alice, Bob" and "Alice, Bob" in v["body"]
+
+
 if __name__ == "__main__":
     test_challenge_has_play_button()
     test_leaderboard_buttons_and_count()
@@ -61,4 +71,5 @@ if __name__ == "__main__":
     test_leaderboard_no_urls_no_actions()
     test_challenge_variables_button()
     test_leaderboard_variables_button_is_stats()
+    test_reminder_names_in_message_and_variables()
     print("ok")

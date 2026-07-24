@@ -29,6 +29,13 @@ class SlackTransport:
             slack.leaderboard_variables(rows, su),    # workflow: one button -> stats
         )
 
+    def send_reminder(self, dest, title, body, names):
+        self._send(
+            dest,
+            slack.reminder_message(title, body, names),
+            slack.reminder_variables(title, body, names),
+        )
+
     def send_alert(self, dest, kind):
         if kind == "cookie_expired":
             self._send(dest, slack.cookie_expired_message(), slack.cookie_expired_variables())

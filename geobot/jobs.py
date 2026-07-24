@@ -127,3 +127,28 @@ def post_leaderboard(league_id: int) -> str:
     rows = store.weekly_leaderboard(data)
     transport.send_leaderboard(dest, rows, league["name"], _links(league, data))
     return f"pulled {n}, posted leaderboard"
+
+
+def send_reminder(league_id: int) -> str:
+    """Nag this-week's players who haven't finished all of today's challenges.
+    Courtesy-pulls fresh scores first so "played today" is current; sends nothing
+    when nobody's missing (no challenges today, or everyone's played them all)."""
+    conn = db.conn()
+    league = conn.execute("SELECT * FROM leagues WHERE id=?", (league_id,)).fetchone()
+    if not league:
+        return "league no longer exists"
+    gg = _client(conn, league)
+    transport, dest = _transport(conn, league)
+    if gg is None or transport is None:
+        return "missing credential"
+    if not gg.check_auth():
+        transport.send_alert(dest, "cookie_expired")
+        return "GeoGuessr cookie invalid"
+    _fetch_scores(conn, league_id, gg)  # so "played today" reflects the latest scores
+    data = queries.load_league_data(conn, league_id)
+    names = store.players_not_played_today(data, _today(league["tz"]))
+    if not names:
+        return "nobody to remind"
+    title = league["reminder_title"] or "⏰ Still to play today"
+    transport.send_reminder(dest, title, league["reminder_body"] or "", names)
+    return f"reminded {len(names)} player(s)"

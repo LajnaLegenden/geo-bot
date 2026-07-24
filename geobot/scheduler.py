@@ -72,8 +72,9 @@ def _remove(job_id: str) -> None:
 def _sync_league(league) -> None:
     lid = league["id"]
     post_id, pull_id = f"league:{lid}:post", f"league:{lid}:pull"
+    rem_id = f"league:{lid}:reminder"
     if not league["enabled"]:
-        _remove(post_id); _remove(pull_id)
+        _remove(post_id); _remove(pull_id); _remove(rem_id)
         return
     # daily Slack post
     _scheduler.add_job(
@@ -89,6 +90,14 @@ def _sync_league(league) -> None:
         )
     else:
         _remove(pull_id)
+    # optional "still to play" reminder (NULL cron = off)
+    if league["cron_reminder"]:
+        _scheduler.add_job(
+            jobs.send_reminder, _trigger(league["cron_reminder"], league["tz"]),
+            args=[lid], id=rem_id, replace_existing=True,
+        )
+    else:
+        _remove(rem_id)
 
 
 def _sync_game(g) -> None:
@@ -120,6 +129,7 @@ def on_league_deleted(league_id: int, game_ids: list[int]) -> None:
         return
     _remove(f"league:{league_id}:post")
     _remove(f"league:{league_id}:pull")
+    _remove(f"league:{league_id}:reminder")
     for gid in game_ids:
         _remove(f"game:{gid}:challenge")
 
