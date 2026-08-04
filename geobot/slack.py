@@ -42,13 +42,16 @@ def cookie_expired_message() -> tuple[str, list]:
     return text, blocks
 
 
+_PLAY = "▶️ Play challenge"
+
+
 def _play_button(url: str) -> dict:
     # A button with a `url` (and no action_id) is a link-button: it just opens
     # the URL, so it needs no interactivity endpoint / bot — works over an
     # incoming webhook.
     return {
         "type": "button",
-        "text": {"type": "plain_text", "text": "▶️ Play challenge", "emoji": True},
+        "text": {"type": "plain_text", "text": _PLAY, "emoji": True},
         "url": url,
         "style": "primary",
     }
@@ -130,46 +133,63 @@ def reminder_message(title: str, body: str, names: list[str]) -> tuple[str, list
     return text, blocks
 
 
-def challenge_variables(url: str) -> dict:
-    # Workflow Builder path: the URL + its label are standalone variables so the
-    # workflow can bind them to a message button (Block Kit buttons only exist on
-    # the incoming-webhook path). One button per message, so both this and the
-    # leaderboard use the same variable names — a challenge post fills them with
-    # the challenge link, a leaderboard post with the stats link.
-    return {
-        "title": "🌍 Today's GeoGuessr challenge",
-        "body": "Scores count toward this week's board (resets Monday).",
-        "button_text": "▶️ Play challenge",
-        "button_url": url,
-    }
+_FALLBACK_URL = "https://www.geoguessr.com"
 
 
-def leaderboard_variables(rows: list[dict], stats_url: str | None = None) -> dict:
-    v = {
-        "title": "🏆 This week's leaderboard",
-        "body": "\n".join(_leaderboard_lines(rows)) if rows else "No scores yet this week.",
-        "players": _players_played(len(rows)) if rows else "No scores yet this week.",
-    }
-    if stats_url:  # single button on the leaderboard -> the public stats page
-        v["button_text"] = "📊 Stats"
-        v["button_url"] = stats_url
-    return v
-
-
-def reminder_variables(title: str, body: str, names: list[str]) -> dict:
-    people = ", ".join(names)
+def _vars(title: str, body: str, button_text: str, button_url: str | None,
+          players: str = "") -> dict:
+    """Build a Workflow-Builder payload. All four message types share ONE trigger
+    URL, and that trigger declares a fixed variable set — so every payload must
+    carry every key, and the button (a URL-typed field) must always resolve to a
+    real link. Omit a key, or leave button_url empty, and Slack fails the message
+    step with "failed to start due to an invalid parameter" instead of just
+    dropping the button. Hence the fallback: no natural link -> geoguessr.com.
+    `players` is plain text, so "" is fine for the types that have no roster."""
     return {
         "title": title,
-        "body": f"{body}\n\n{people}" if body else people,
-        "players": people,
+        "body": body,
+        "players": players,
+        "button_text": button_text,
+        "button_url": button_url or _FALLBACK_URL,
     }
+
+
+def challenge_variables(url: str) -> dict:
+    return _vars(
+        "🌍 Today's GeoGuessr challenge",
+        "Scores count toward this week's board (resets Monday).",
+        _PLAY, url,
+    )
+
+
+def leaderboard_variables(
+    rows: list[dict], stats_url: str | None = None, challenge_url: str | None = None
+) -> dict:
+    # One button per message: the public stats page when it exists, else the
+    # latest challenge (Block Kit gets both buttons — see leaderboard_message).
+    text, url = ("📊 Stats", stats_url) if stats_url else (_PLAY, challenge_url)
+    return _vars(
+        "🏆 This week's leaderboard",
+        "\n".join(_leaderboard_lines(rows)) if rows else "No scores yet this week.",
+        text, url,
+        players=_players_played(len(rows)) if rows else "No scores yet this week.",
+    )
+
+
+def reminder_variables(
+    title: str, body: str, names: list[str], play_url: str | None = None
+) -> dict:
+    people = ", ".join(names)
+    return _vars(
+        title, f"{body}\n\n{people}" if body else people, _PLAY, play_url,
+        players=people,
+    )
 
 
 def cookie_expired_variables() -> dict:
-    return {
-        "title": "⚠️ GeoGuessr cookie expired",
-        "body": (
-            "The bot can't reach your account. Grab a fresh _ncfa cookie and "
-            "update the GEO_NCFA repo secret to get challenges going again."
-        ),
-    }
+    return _vars(
+        "⚠️ GeoGuessr cookie expired",
+        "The bot can't reach your account. Grab a fresh _ncfa cookie and "
+        "update the GEO_NCFA repo secret to get challenges going again.",
+        "🔑 Get a fresh cookie", None,  # -> geoguessr.com, where you copy _ncfa
+    )

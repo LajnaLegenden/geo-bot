@@ -25,15 +25,15 @@ class SlackTransport:
         su, cu = links.get("stats_url"), links.get("challenge_url")
         self._send(
             dest,
-            slack.leaderboard_message(rows, su, cu),  # incoming: both buttons
-            slack.leaderboard_variables(rows, su),    # workflow: one button -> stats
+            slack.leaderboard_message(rows, su, cu),   # incoming: both buttons
+            slack.leaderboard_variables(rows, su, cu), # workflow: one -> stats or play
         )
 
-    def send_reminder(self, dest, title, body, names):
+    def send_reminder(self, dest, title, body, names, play_url=None):
         self._send(
             dest,
             slack.reminder_message(title, body, names),
-            slack.reminder_variables(title, body, names),
+            slack.reminder_variables(title, body, names, play_url),
         )
 
     def send_alert(self, dest, kind):

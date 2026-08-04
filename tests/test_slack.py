@@ -50,8 +50,28 @@ def test_leaderboard_variables_button_is_stats():
     v = slack.leaderboard_variables(rows, stats_url="https://app/s/league")
     assert v["button_url"] == "https://app/s/league" and v["button_text"] == "📊 Stats"
     assert "1 player played this week" in v["players"]
-    # no stats url -> no button variables (so the workflow button isn't left empty)
-    assert "button_url" not in slack.leaderboard_variables(rows, stats_url=None)
+    # no stats url -> the button falls back to the latest challenge, never empty
+    v = slack.leaderboard_variables(rows, None, "https://gg/c/xyz")
+    assert v["button_url"] == "https://gg/c/xyz" and v["button_text"] == "▶️ Play challenge"
+
+
+def test_workflow_variables_share_one_shape():
+    """All four message types post to ONE workflow trigger, which declares a fixed
+    variable set — so every payload needs the same keys and a real button_url, or
+    Slack fails the message step with "invalid parameter" (that's what broke the
+    reminder: it sent no button_url at all)."""
+    rows = [{"name": "A", "total": 10, "rounds": 1}]
+    payloads = [
+        slack.challenge_variables("https://gg/c/xyz"),
+        slack.leaderboard_variables(rows, "https://app/s/l", "https://gg/c/xyz"),
+        slack.leaderboard_variables([], None, None),          # no stats, no challenge
+        slack.reminder_variables("t", "b", ["A"], "https://gg/c/xyz"),
+        slack.reminder_variables("t", "", ["A"], None),       # no link available
+        slack.cookie_expired_variables(),
+    ]
+    assert len({frozenset(p) for p in payloads}) == 1, [sorted(p) for p in payloads]
+    assert all(p["button_url"].startswith("https://") for p in payloads)
+    assert all(p["button_text"] and p["title"] and p["body"] for p in payloads)
 
 
 def test_reminder_names_in_message_and_variables():
@@ -71,5 +91,6 @@ if __name__ == "__main__":
     test_leaderboard_no_urls_no_actions()
     test_challenge_variables_button()
     test_leaderboard_variables_button_is_stats()
+    test_workflow_variables_share_one_shape()
     test_reminder_names_in_message_and_variables()
     print("ok")

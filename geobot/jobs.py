@@ -150,5 +150,7 @@ def send_reminder(league_id: int) -> str:
     if not names:
         return "nobody to remind"
     title = league["reminder_title"] or "⏰ Still to play today"
-    transport.send_reminder(dest, title, league["reminder_body"] or "", names)
+    # names is non-empty => there's a challenge dated today, so this is one of them
+    play_url = _links(league, data)["challenge_url"]
+    transport.send_reminder(dest, title, league["reminder_body"] or "", names, play_url)
     return f"reminded {len(names)} player(s)"

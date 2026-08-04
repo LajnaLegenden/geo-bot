@@ -52,8 +52,11 @@ schedules itself).
    Webhook" as the mode. The app builds the whole message, so the challenge post
    and the leaderboard get real clickable buttons (▶️ Play challenge, 📊 Stats).
    Slack Workflow Builder triggers are supported too — pick "Workflow Builder" as
-   the mode — but that path renders links, not app-built buttons (Workflow buttons
-   can't take the per-day challenge URL), and you wire the message in Slack's UI.
+   the mode — there you wire the message in Slack's UI, from five variables the
+   trigger must declare: `title`, `body`, `players`, `button_text`, `button_url`.
+   Every post type (challenge, leaderboard, reminder, cookie alert) sends all
+   five, so one workflow message handles them all; a variable your message uses
+   but the payload omits makes Slack fail the step with *"invalid parameter"*.
 2. **Maps** → paste a GeoGuessr map URL/ID and save it.
 3. **New league** → pick the channel + GeoGuessr account, set the **leaderboard
    post** schedule + timezone and the **pull interval** (how often scores refresh
