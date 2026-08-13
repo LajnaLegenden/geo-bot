@@ -148,6 +148,22 @@ def on_game_deleted(game_id: int) -> None:
     _remove(f"game:{game_id}:challenge")
 
 
+def run_soon(job_id: str, func, *args) -> bool:
+    """Run `func(*args)` once, right now, off the caller's thread.
+
+    Slack wants an interaction acked within 3 seconds and a GeoGuessr pull takes
+    longer, so button handlers hand the work here and return 200 immediately. Reusing
+    the scheduler rather than spawning bare threads buys the job defaults for free:
+    a stable `job_id` + replace_existing collapses repeat clicks into one pending run,
+    and max_instances=1 stops a second one starting while the first is still going.
+
+    False when the scheduler isn't running (tests, imports) so callers can degrade."""
+    if _scheduler is None:
+        return False
+    _scheduler.add_job(func, "date", args=list(args), id=job_id, replace_existing=True)
+    return True
+
+
 def get_jobs() -> list:
     return _scheduler.get_jobs() if _scheduler else []
 

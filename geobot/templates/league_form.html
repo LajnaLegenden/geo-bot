@@ -10,14 +10,21 @@
     <input type="hidden" name="_csrf" value="{{ csrf_token }}">
     <label>Name<input name="name" value="{{ league['name'] if league else '' }}" required></label>
 
-    <label>Channel (transport)
-      <select name="transport_cred_id" required>
-        {% for c in transports %}
-          <option value="{{ c['id'] }}" {{ 'selected' if league and league['transport_cred_id']==c['id'] else '' }}>{{ c['kind'] }} · {{ c['label'] }}</option>
+    {# One select for workspace+channel: value is "<cred_id>:<channel_id>:<name>", so
+       changing workspace needs no round-trip to repopulate channels. #}
+    {% set bound = (league['transport_cred_id']|string + ':' + (league['slack_channel_id'] or '')) if league else '' %}
+    <label>Channel
+      <select name="channel" required>
+        {% for g in channel_groups %}
+          <optgroup label="{{ g['label'] }}{% if g['note'] %} — {{ g['note'] }}{% endif %}">
+            {% for value, text in g['options'] %}
+              <option value="{{ value }}" {{ 'selected' if bound and value.startswith(bound + ':') else '' }}>{{ text }}</option>
+            {% endfor %}
+          </optgroup>
         {% endfor %}
       </select>
     </label>
-    {% if not transports %}<p class="muted">No Slack/Discord credentials yet — add one first.</p>{% endif %}
+    {% if not channel_groups %}<p class="muted">No Slack/Discord credentials yet — add one first.</p>{% endif %}
 
     <label>GeoGuessr account
       <select name="geo_cred_id" required>
@@ -57,6 +64,12 @@
         {% endfor %}
       </fieldset>
       <label>Reminder time<input type="time" name="reminder_time" value="{{ '%02d:%02d'|format(rem['hour'], rem['minute']) }}"></label>
+      <label>Send it <span class="muted">(DMs only reach players who linked themselves)</span>
+        {% set dlv = league['reminder_delivery'] if league else 'channel' %}
+        <select name="reminder_delivery">
+          {% for k, v in delivery.items() %}<option value="{{ k }}" {{ 'selected' if dlv == k else '' }}>{{ v }}</option>{% endfor %}
+        </select>
+      </label>
       <label>Reminder title<input name="reminder_title" value="{{ league['reminder_title'] if league else '⏰ Still to play today' }}"></label>
       <label>Reminder message<textarea name="reminder_body" rows="2" placeholder="Don't forget today's challenge!">{{ league['reminder_body'] if league else '' }}</textarea></label>
     </fieldset>

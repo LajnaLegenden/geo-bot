@@ -13,7 +13,12 @@
 <div class="card">
   <p><strong>Leaderboard post:</strong> {{ cron.describe(league['cron_results']) }} · {{ league['tz'] }}</p>
   <p><strong>Pull results:</strong> {% if league['pull_minutes'] %}every {{ league['pull_minutes'] }} min{% else %}off{% endif %}</p>
-  <p><strong>Reminder:</strong> {% if league['cron_reminder'] %}{{ cron.describe(league['cron_reminder']) }} · {{ league['tz'] }}{% else %}off{% endif %}</p>
+  <p><strong>Channel:</strong>
+    {% if league['slack_channel_name'] %}#{{ league['slack_channel_name'] }}
+    {% elif league['slack_channel_id'] %}<code>{{ league['slack_channel_id'] }}</code>
+    {% else %}<span class="muted">legacy webhook (channel is baked into the URL)</span>{% endif %}
+  </p>
+  <p><strong>Reminder:</strong> {% if league['cron_reminder'] %}{{ cron.describe(league['cron_reminder']) }} · {{ league['tz'] }} · {{ league['reminder_delivery'] }}{% else %}off{% endif %}</p>
   <p><strong>Stats:</strong>
     {% if league['public_slug'] %}public at <code>/s/{{ league['public_slug'] }}</code>{% else %}private{% endif %}
   </p>
