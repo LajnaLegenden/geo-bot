@@ -12,7 +12,7 @@ leaderboard/season points continue unbroken.
 | State | `data/store.json` committed to git | SQLite on a persistent `/data` volume |
 | Config | env vars + `geobot/maps.py` | per-account UI; credentials encrypted at rest |
 | GeoGuessr cookie | `GEO_NCFA` env | a GeoGuessr **credential** in the UI |
-| Slack | `SLACK_WEBHOOK_URL` / `SLACK_WORKFLOW_URL` + `SLACK_SINK` | a Slack **credential** (mode = incoming/workflow) |
+| Slack | `SLACK_WEBHOOK_URL` / `SLACK_WORKFLOW_URL` + `SLACK_SINK` | a Slack **credential** (mode = bot/incoming; see README → *Slack setup*) |
 | Scheduling | `bot.yml` cron (`new`/`update`) | per-game challenge schedule + per-league post schedule + a pull interval |
 
 ## Before you start — gather
@@ -40,8 +40,13 @@ leaderboard/season points continue unbroken.
 1. **Register** (the first account is yours).
 2. **Credentials** → add two:
    - GeoGuessr cookie — paste your `_ncfa`.
-   - Slack — paste your webhook/trigger URL; set **mode** to match your old `SLACK_SINK`
-     (`incoming` webhook, or `workflow` for a Workflow Builder trigger).
+   - Slack — create a Slack app and use **mode = bot** (README → *Slack setup*: paste
+     the manifest, install, copy the bot token + signing secret, then
+     `/invite @GeoBot` in the channel). A bot is what gives you buttons, `@`-mentions
+     of the players who owe a challenge, and DMs. If your old `SLACK_SINK` was
+     `incoming` you can paste that webhook URL with **mode = incoming** instead, but
+     it stays non-interactive. **Workflow Builder mode no longer exists** — a
+     `workflow` trigger URL can't be reused as either of the other two, so make a bot.
 3. **Maps** → paste + validate each (URL is `https://www.geoguessr.com/maps/<id>`):
 
    | Game name | Map id | Time | Rules | Weight |
@@ -51,7 +56,9 @@ leaderboard/season points continue unbroken.
 
    *(These are your old `geobot/maps.py` values.)*
 4. **New league** (e.g. "Daily GeoGuessr"):
-   - Channel = your Slack credential; GeoGuessr account = your cookie credential.
+   - Channel = pick the workspace + channel the bot was invited to (one dropdown);
+     GeoGuessr account = your cookie credential. Set **reminder delivery** while
+     you're there (channel / DM / both).
    - Timezone = your local zone (e.g. `Europe/Stockholm`).
    - **Post leaderboard** schedule = your old evening `update` time (Mon–Fri).
    - **Pull results** interval = every 30 or 60 min (keeps stats fresh between posts).
