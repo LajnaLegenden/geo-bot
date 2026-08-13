@@ -28,12 +28,39 @@ def _client(conn, league) -> GeoGuessr | None:
 
 
 def _transport(conn, league):
+    """(transport, dest) for a league's channel, or (None, None) if it can't deliver.
+
+    Bot-mode Slack credentials hold *two* secrets, so their `secret` column is an
+    encrypted JSON blob rather than the bare webhook URL the other modes store; the
+    channel and reminder delivery come off the league, not the credential."""
     cred = queries.get_credential(conn, league["transport_cred_id"], league["user_id"])
     if not cred:
         return None, None
     meta = json.loads(cred["meta"]) if cred["meta"] else {}
-    dest = {"url": db.decrypt(cred["secret"]), **meta}
+    if meta.get("mode") == "workflow":
+        # Workflow Builder mode is gone and can't be auto-migrated: its trigger URL
+        # takes declared variables, not Block Kit, so falling through to post_to()
+        # would push garbage at Slack. Refuse loudly instead — this surfaces as a
+        # "Post failed: …" flash on the Run-now buttons and a scheduler error in the
+        # logs, which is what you want during the cutover.
+        raise RuntimeError(
+            f"league {league['id']} still uses a Slack Workflow Builder credential "
+            f"({cred['label']!r}). Add a Slack bot credential and re-point the "
+            "league's Channel to it — see README → Slack setup."
+        )
+    dest = {**meta, "league_id": league["id"]}
+    if meta.get("mode") == "bot":
+        dest.update(json.loads(db.decrypt(cred["secret"])))
+        dest["channel_id"] = league["slack_channel_id"]
+        dest["delivery"] = league["reminder_delivery"]
+        if not dest["channel_id"]:
+            return None, None      # a bot credential with no channel bound yet
+    else:
+        dest["url"] = db.decrypt(cred["secret"])
     return transports.get(cred["kind"]), dest
+
+
+_NO_DEST = "missing credential (or no Slack channel bound to the league)"
 
 
 def _links(league, data) -> dict:
@@ -61,7 +88,7 @@ def post_challenge(league_id: int, game_id: int) -> str:
     gg = _client(conn, league)
     transport, dest = _transport(conn, league)
     if gg is None or transport is None or m is None:
-        return "missing credential or map"
+        return _NO_DEST + " or map"
     if not gg.check_auth():
         transport.send_alert(dest, "cookie_expired")
         return "GeoGuessr cookie invalid"
@@ -118,15 +145,40 @@ def post_leaderboard(league_id: int) -> str:
     gg = _client(conn, league)
     transport, dest = _transport(conn, league)
     if gg is None or transport is None:
-        return "missing credential"
+        return _NO_DEST
     if not gg.check_auth():
         transport.send_alert(dest, "cookie_expired")
         return "GeoGuessr cookie invalid"
     n = _fetch_scores(conn, league_id, gg)  # courtesy pull before posting
     data = queries.load_league_data(conn, league_id)
-    rows = store.weekly_leaderboard(data)
+    rows = queries.attach_slack_ids(conn, league_id, store.weekly_leaderboard(data))
     transport.send_leaderboard(dest, rows, league["name"], _links(league, data))
     return f"pulled {n}, posted leaderboard"
+
+
+def refresh_leaderboard(league_id: int, channel_id: str, message_ts: str) -> str:
+    """The 🔄 Refresh button: re-pull, then edit the existing post in place instead of
+    adding another one.
+
+    Runs on a scheduler thread, not the request thread — Slack wants an interaction
+    acked within 3s and a GeoGuessr pull takes longer (see scheduler.run_soon). A
+    dead cookie skips the pull rather than alerting: the click already has a visible
+    outcome, and the scheduled jobs are what should be nagging about credentials."""
+    conn = db.conn()
+    league = conn.execute("SELECT * FROM leagues WHERE id=?", (league_id,)).fetchone()
+    if not league:
+        return "league no longer exists"
+    gg = _client(conn, league)
+    transport, dest = _transport(conn, league)
+    if transport is None or dest.get("mode") != "bot":
+        return "not a bot-mode league"
+    if gg is not None and gg.check_auth():
+        _fetch_scores(conn, league_id, gg)
+    data = queries.load_league_data(conn, league_id)
+    rows = queries.attach_slack_ids(conn, league_id, store.weekly_leaderboard(data))
+    dest["channel_id"] = channel_id  # edit the message where it was actually clicked
+    transport.update_leaderboard(dest, rows, _links(league, data), message_ts)
+    return "refreshed leaderboard"
 
 
 def send_reminder(league_id: int) -> str:
@@ -140,17 +192,20 @@ def send_reminder(league_id: int) -> str:
     gg = _client(conn, league)
     transport, dest = _transport(conn, league)
     if gg is None or transport is None:
-        return "missing credential"
+        return _NO_DEST
     if not gg.check_auth():
         transport.send_alert(dest, "cookie_expired")
         return "GeoGuessr cookie invalid"
     _fetch_scores(conn, league_id, gg)  # so "played today" reflects the latest scores
     data = queries.load_league_data(conn, league_id)
-    names = store.players_not_played_today(data, _today(league["tz"]))
-    if not names:
+    entries = store.players_not_played_today(data, _today(league["tz"]))
+    if not entries:
         return "nobody to remind"
+    # Players who linked themselves become real @-mentions; the rest stay plain text.
+    queries.attach_slack_ids(conn, league_id, entries)
     title = league["reminder_title"] or "⏰ Still to play today"
-    # names is non-empty => there's a challenge dated today, so this is one of them
+    # entries is non-empty => there's a challenge dated today, so this is one of them
     play_url = _links(league, data)["challenge_url"]
-    transport.send_reminder(dest, title, league["reminder_body"] or "", names, play_url)
-    return f"reminded {len(names)} player(s)"
+    transport.send_reminder(dest, title, league["reminder_body"] or "", entries, play_url)
+    pinged = sum(1 for e in entries if e.get("slack_user_id"))
+    return f"reminded {len(entries)} player(s), {pinged} @-mentioned"
