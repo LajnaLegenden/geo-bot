@@ -37,6 +37,17 @@ def _transport(conn, league):
     if not cred:
         return None, None
     meta = json.loads(cred["meta"]) if cred["meta"] else {}
+    if meta.get("mode") == "workflow":
+        # Workflow Builder mode is gone and can't be auto-migrated: its trigger URL
+        # takes declared variables, not Block Kit, so falling through to post_to()
+        # would push garbage at Slack. Refuse loudly instead — this surfaces as a
+        # "Post failed: …" flash on the Run-now buttons and a scheduler error in the
+        # logs, which is what you want during the cutover.
+        raise RuntimeError(
+            f"league {league['id']} still uses a Slack Workflow Builder credential "
+            f"({cred['label']!r}). Add a Slack bot credential and re-point the "
+            "league's Channel to it — see README → Slack setup."
+        )
     dest = {**meta, "league_id": league["id"]}
     if meta.get("mode") == "bot":
         dest.update(json.loads(db.decrypt(cred["secret"])))

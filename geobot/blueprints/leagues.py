@@ -103,14 +103,19 @@ def _channel_groups(uid, league=None) -> list[dict]:
             })
         else:
             mode = meta.get("mode") or c["kind"]
+            note = ("Workflow Builder mode was removed — pick a bot channel instead"
+                    if mode == "workflow" else None)
+            # Always three ':'-separated segments, even with no channel/name, so the
+            # "is this the current binding" prefix test below works for every mode.
             groups.append({
-                "label": f"legacy {mode}", "note": None,
-                "options": [(f"{c['id']}:", c["label"])],
+                "label": f"legacy {mode}", "note": note,
+                "options": [(f"{c['id']}::", c["label"])],
             })
 
     if league and league["slack_channel_id"]:
         current = f"{league['transport_cred_id']}:{league['slack_channel_id']}"
-        if not any(v.startswith(current + ":") for g in groups for v, _ in g["options"]):
+        listed = any(v.startswith(current + ":") for g in groups for v, _ in g["options"])
+        if not listed:
             groups.insert(0, {
                 "label": "currently bound", "note": "couldn't be re-listed from Slack",
                 "options": [(f"{current}:{league['slack_channel_name'] or ''}",

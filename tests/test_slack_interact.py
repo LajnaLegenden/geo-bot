@@ -246,6 +246,44 @@ def test_channel_dropdown_lists_invited_channels():
     assert f'value="{cred_id}:C0ABC:geo-guessr" selected' in body   # current binding
 
 
+def test_legacy_webhook_league_keeps_its_credential_selected():
+    """A pre-bot league has no channel, so its option value is "<cred>::". The
+    "is this the current binding" test has to match that too, or opening the edit form
+    silently re-points the league at whatever option happens to be first."""
+    client, lid, _ = setup()
+    _login(client)
+    conn = db.conn()
+    hook = queries.add_credential(conn, 1, "slack", "#geo-guessr",
+                                  "https://hooks.slack.com/x", '{"mode":"incoming"}')
+    conn.execute("UPDATE leagues SET transport_cred_id=?, slack_channel_id=NULL "
+                 "WHERE id=?", (hook, lid))
+    conn.commit()
+    slack_api.channels = lambda token: [{"id": "C0ABC", "name": "geo-guessr"}]
+
+    body = client.get(f"/leagues/{lid}/edit").get_data(as_text=True)
+    assert f'value="{hook}::" selected' in body, body[body.find("<select"):][:600]
+    assert "currently bound" not in body      # it *is* listed, so no fallback group
+
+
+def test_workflow_mode_credential_refuses_to_post():
+    """Deploy-window safety: a league still on the removed Workflow Builder mode must
+    fail with an actionable message, not fall through and POST Block Kit at a trigger
+    URL (which would garbage the channel)."""
+    from geobot import jobs
+    client, lid, _ = setup()
+    conn = db.conn()
+    wf = queries.add_credential(conn, 1, "slack", "old flow",
+                                "https://hooks.slack.com/triggers/x", '{"mode":"workflow"}')
+    conn.execute("UPDATE leagues SET transport_cred_id=? WHERE id=?", (wf, lid))
+    conn.commit()
+    try:
+        jobs.post_leaderboard(lid)
+    except RuntimeError as e:
+        assert "Workflow Builder" in str(e) and "old flow" in str(e), e
+    else:
+        raise AssertionError("expected a refusal, not a post attempt")
+
+
 def test_league_form_survives_slack_being_unreachable():
     """A dead token or an API outage must not 500 the form, and must not silently
     drop the league's existing binding — editing an unrelated field would then
