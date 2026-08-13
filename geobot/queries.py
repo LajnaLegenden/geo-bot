@@ -62,25 +62,6 @@ def get_credential_secret(conn, cred_id, user_id) -> str | None:
     return db.decrypt(row["secret"]) if row else None
 
 
-def slack_bot_credentials(conn, team_id: str | None = None) -> list[sqlite3.Row]:
-    """Every bot-mode Slack credential, across all users — an inbound Slack
-    interaction has no logged-in session to scope by, so ownership can't narrow this.
-    `team_id` narrows to one workspace; the request *signature* is what actually
-    authenticates (see blueprints/slack_bot.py), this only picks candidates.
-
-    Filtered in Python rather than with json_extract so nothing depends on the
-    SQLite build having JSON1; the table holds a handful of rows."""
-    out = []
-    for r in conn.execute("SELECT * FROM credentials WHERE kind='slack' ORDER BY id"):
-        meta = json.loads(r["meta"]) if r["meta"] else {}
-        if meta.get("mode") != "bot":
-            continue
-        if team_id and meta.get("team_id") != team_id:
-            continue
-        out.append(r)
-    return out
-
-
 def delete_credential(conn, cred_id, user_id) -> None:
     conn.execute("DELETE FROM credentials WHERE id=? AND user_id=?", (cred_id, user_id))
     conn.commit()
@@ -116,29 +97,16 @@ def delete_map(conn, map_pk, user_id) -> None:
 
 # --- leagues ----------------------------------------------------------------
 
-_LEAGUE_COLS = ("name", "transport_cred_id", "geo_cred_id", "cron_results", "tz",
-                "public_slug", "pull_minutes", "cron_reminder", "reminder_title",
-                "reminder_body", "slack_channel_id", "slack_channel_name",
-                "reminder_delivery")
-_LEAGUE_DEFAULTS = {"pull_minutes": 60, "cron_reminder": None, "public_slug": None,
-                    "tz": "UTC", "reminder_title": "⏰ Still to play today",
-                    "reminder_body": "", "slack_channel_id": None,
-                    "slack_channel_name": None, "reminder_delivery": "channel"}
-
-
-def _league_values(f: dict) -> list:
-    """Column values in _LEAGUE_COLS order, defaulting anything the caller omitted.
-    Keyword-style like add_game(**f) — the positional signature grew a parameter per
-    migration, so the column list is the single place a new one gets added."""
-    return [f.get(c, _LEAGUE_DEFAULTS.get(c)) for c in _LEAGUE_COLS]
-
-
-def add_league(conn, user_id, **f) -> int:
-    cols = ", ".join(_LEAGUE_COLS)
-    marks = ", ".join("?" * len(_LEAGUE_COLS))
+def add_league(conn, user_id, name, transport_cred_id, geo_cred_id,
+               cron_results, tz, public_slug, pull_minutes=60,
+               cron_reminder=None, reminder_title="⏰ Still to play today",
+               reminder_body="") -> int:
     cur = conn.execute(
-        f"INSERT INTO leagues(user_id, {cols}) VALUES(?, {marks})",
-        [user_id] + _league_values(f),
+        "INSERT INTO leagues(user_id, name, transport_cred_id, geo_cred_id, "
+        "cron_results, tz, public_slug, pull_minutes, cron_reminder, "
+        "reminder_title, reminder_body) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        (user_id, name, transport_cred_id, geo_cred_id, cron_results, tz,
+         public_slug, pull_minutes, cron_reminder, reminder_title, reminder_body),
     )
     conn.commit()
     return cur.lastrowid
@@ -170,11 +138,17 @@ def all_leagues(conn) -> list[sqlite3.Row]:
     return conn.execute("SELECT * FROM leagues").fetchall()
 
 
-def update_league(conn, league_id, user_id, **f) -> None:
-    sets = ", ".join(f"{c}=?" for c in _LEAGUE_COLS)
+def update_league(conn, league_id, user_id, name, transport_cred_id, geo_cred_id,
+                  cron_results, tz, public_slug, pull_minutes=60,
+                  cron_reminder=None, reminder_title="⏰ Still to play today",
+                  reminder_body="") -> None:
     conn.execute(
-        f"UPDATE leagues SET {sets} WHERE id=? AND user_id=?",
-        _league_values(f) + [league_id, user_id],
+        "UPDATE leagues SET name=?, transport_cred_id=?, geo_cred_id=?, "
+        "cron_results=?, tz=?, public_slug=?, pull_minutes=?, cron_reminder=?, "
+        "reminder_title=?, reminder_body=? WHERE id=? AND user_id=?",
+        (name, transport_cred_id, geo_cred_id, cron_results, tz, public_slug,
+         pull_minutes, cron_reminder, reminder_title, reminder_body,
+         league_id, user_id),
     )
     conn.commit()
 
@@ -295,48 +269,6 @@ def upsert_scores(conn, league_id, token, result: dict) -> None:
              s.get("pin"), json.dumps(s.get("guesses") or [])),
         )
     conn.commit()
-
-
-# --- slack player links -----------------------------------------------------
-
-def player_links(conn, league_id) -> dict[str, str]:
-    """{player_key: slack_user_id} for a league — the join that turns a GeoGuessr
-    name into an @-mention. player_key matches store.py's aggregation key."""
-    return {r["player_key"]: r["slack_user_id"] for r in conn.execute(
-        "SELECT player_key, slack_user_id FROM player_links WHERE league_id=?",
-        (league_id,),
-    )}
-
-
-def link_player(conn, league_id, player_key, slack_user_id) -> None:
-    """Bind a Slack user to a GeoGuessr player, replacing either side's old claim.
-
-    A Slack user holds at most one player per league (UNIQUE index), so their
-    previous claim is cleared first — without the DELETE, re-linking to a different
-    player would trip the index instead of moving the link."""
-    conn.execute(
-        "DELETE FROM player_links WHERE league_id=? AND slack_user_id=?",
-        (league_id, slack_user_id),
-    )
-    conn.execute(
-        "INSERT INTO player_links(league_id, player_key, slack_user_id) VALUES(?,?,?) "
-        "ON CONFLICT(league_id, player_key) DO UPDATE SET "
-        "slack_user_id=excluded.slack_user_id, linked_at=datetime('now')",
-        (league_id, player_key, slack_user_id),
-    )
-    conn.commit()
-
-
-def attach_slack_ids(conn, league_id, rows: list[dict]) -> list[dict]:
-    """Stamp `slack_user_id` onto any row whose `key` has been linked. Mutates and
-    returns `rows`. Called from jobs.py so transports never touch the DB — both
-    leaderboard rows and reminder entries carry a `key`, so one helper covers both."""
-    links = player_links(conn, league_id)
-    for r in rows:
-        uid = links.get(r.get("key"))
-        if uid:
-            r["slack_user_id"] = uid
-    return rows
 
 
 # --- stats seam -------------------------------------------------------------

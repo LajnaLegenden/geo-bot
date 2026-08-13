@@ -12,7 +12,7 @@ import secrets
 from flask import Flask, abort, render_template, request, session
 
 from . import db, queries
-from .blueprints import auth, credentials, games, leagues, maps, slack_bot, stats
+from .blueprints import auth, credentials, games, leagues, maps, stats
 from .security import login_required
 
 
@@ -29,12 +29,6 @@ def create_app() -> Flask:
     @app.before_request
     def _csrf_protect():
         if request.method in ("POST", "PUT", "PATCH", "DELETE"):
-            # Slack's interactivity POSTs carry no session cookie, so a synchronizer
-            # token can't apply to them. They authenticate with Slack's v0= request
-            # signature instead (slack_api.verify_request, checked in the blueprint) —
-            # strictly stronger than a CSRF token for a caller with no session.
-            if request.path.startswith("/slack/"):
-                return
             sent = request.form.get("_csrf") or request.headers.get("X-CSRF-Token")
             if not sent or sent != session.get("_csrf"):
                 abort(400, "bad or missing CSRF token")
@@ -63,7 +57,6 @@ def create_app() -> Flask:
     app.register_blueprint(leagues.bp)
     app.register_blueprint(games.bp)
     app.register_blueprint(stats.bp)
-    app.register_blueprint(slack_bot.bp)
 
     @app.route("/")
     @login_required

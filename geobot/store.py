@@ -138,16 +138,11 @@ def weekly_leaderboard(data: dict | None = None) -> list[dict]:
     return _weighted_board(scores, _token_weight(data))
 
 
-def players_not_played_today(data: dict, today: str) -> list[dict]:
-    """This-week's players who haven't completed *every* challenge dated `today` (a
-    league-tz ISO date string). 'This week' = any score since Monday.
-
-    Returns [{'key', 'name'}] — the `key` is the same player key the rest of this
-    module aggregates on (`user_id` or, failing that, the name), which is what
-    `player_links` is keyed by, so the caller can turn these into Slack @-mentions.
+def players_not_played_today(data: dict, today: str) -> list[str]:
+    """Names of this-week's players who haven't completed *every* challenge dated
+    `today` (a league-tz ISO date string). 'This week' = any score since Monday.
     Returns [] when there are no challenges today or everyone's played them all —
-    the caller then sends nothing. Sorted case-insensitively by name for a stable
-    message."""
+    the caller then sends nothing. Sorted case-insensitively for a stable message."""
     today_tokens = {c["token"] for c in data["challenges"] if c["date"] == today}
     if not today_tokens:
         return []
@@ -161,11 +156,10 @@ def players_not_played_today(data: dict, today: str) -> list[dict]:
             played.setdefault(key, set())
             if s["token"] in today_tokens:
                 played[key].add(s["token"])
-    return [
-        {"key": k, "name": names[k]}
-        for k in sorted(names, key=lambda k: names[k].lower())
-        if len(played[k]) < len(today_tokens)
-    ]
+    return sorted(
+        (names[k] for k in names if len(played[k]) < len(today_tokens)),
+        key=str.lower,
+    )
 
 
 PODIUM = [4, 2, 1]  # points for a week's 1st, 2nd, 3rd
@@ -523,27 +517,9 @@ if __name__ == "__main__":  # python -m geobot.store — self-check
             {"date": "2026-07-21", "token": "e1", "user_id": "c", "name": "C", "score": 1},  # C: wk, not today
         ],
     }
-    # returns key+name (the key is what player_links joins on, so @-mentions work)
-    assert players_not_played_today(npt, "2026-07-24") == [
-        {"key": "b", "name": "B"}, {"key": "c", "name": "C"}
-    ], players_not_played_today(npt, "2026-07-24")
+    assert players_not_played_today(npt, "2026-07-24") == ["B", "C"], \
+        players_not_played_today(npt, "2026-07-24")
     assert players_not_played_today(npt, "2026-07-25") == []  # no challenges that day
-    # a score with no GeoGuessr user_id keys on the name instead — same rule as the
-    # boards, so a linked id-less player still resolves
-    npt_anon = {
-        "challenges": [
-            {"token": "d1", "date": "2026-07-24", "url": "", "map": "normal"},
-            {"token": "d2", "date": "2026-07-24", "url": "", "map": "fast"},
-        ],
-        "scores": [
-            {"date": "2026-07-24", "token": "d1", "user_id": None, "name": "Nyx", "score": 1},
-            {"date": "2026-07-24", "token": "d1", "user_id": "z", "name": "Zoe", "score": 1},
-            {"date": "2026-07-24", "token": "d2", "user_id": "z", "name": "Zoe", "score": 1},
-        ],
-    }
-    # Nyx played 1 of 2 and has no user_id -> keyed by name; Zoe played both -> absent
-    assert players_not_played_today(npt_anon, "2026-07-24") == [{"key": "Nyx", "name": "Nyx"}], \
-        players_not_played_today(npt_anon, "2026-07-24")
 
     # guess-derived stats: per-player aggregates, countries, round wins, and
     # graceful degradation on a legacy row that has no guesses/countries.

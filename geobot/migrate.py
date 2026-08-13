@@ -38,6 +38,5 @@ if __name__ == "__main__":  # python -m geobot.migrate — self-check
     assert first, f"first run should apply migrations, got {first}"
     assert migrate(c) == [], "second run must be a no-op"
     tables = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert {"users", "credentials", "maps", "leagues", "games", "challenges", "scores",
-            "player_links"} <= tables, tables
+    assert {"users", "credentials", "maps", "leagues", "games", "challenges", "scores"} <= tables, tables
     print("migrate ok:", ", ".join(first))
