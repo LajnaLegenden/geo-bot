@@ -104,15 +104,19 @@ def detail(league_id):
     league = queries.get_league(db.conn(), league_id, uid)
     if not league:
         abort(404)
-    games = queries.list_games(db.conn(), league_id)
     seasons, selected, is_current = season_context(db.conn(), league_id)
+    # Games follow the season picker: the selected season's games, editable only
+    # while that season hasn't been superseded (a played season is read-only).
+    games = queries.list_games(db.conn(), league_id, selected["id"]) if selected else []
+    games_editable = bool(selected) and queries.season_is_editable(
+        db.conn(), selected["id"], league_id)
     # Default the new season to next Monday: seasons are scored from weekly
     # podiums, so a boundary on any other day splits one week into two and hands
     # out two podiums for it.
     next_monday = store.week_start() + timedelta(days=7)
     return render_template("league_detail.html", league=league, games=games,
                            cron=cron_builder, seasons=seasons, season=selected,
-                           is_current=is_current,
+                           is_current=is_current, games_editable=games_editable,
                            next_name=f"Season {len(seasons) + 1}",
                            next_start=next_monday.isoformat())
 

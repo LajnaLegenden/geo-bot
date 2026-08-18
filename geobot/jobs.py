@@ -57,6 +57,13 @@ def post_challenge(league_id: int, game_id: int) -> str:
     ).fetchone()
     if not league or not game:
         return "league/game no longer exists"
+    # Games belong to a season, and every game keeps its cron job registered
+    # forever — so the guard is here, not in the scheduler. A future-dated season
+    # therefore starts posting on its own date and the outgoing one stops, with
+    # nothing to re-register (same way the boards roll over: by calendar).
+    current = queries.current_season(conn, league_id)
+    if current is None or game["season_id"] != current["id"]:
+        return "not this season's game"
     m = conn.execute("SELECT map_id FROM maps WHERE id=?", (game["map_ref"],)).fetchone()
     gg = _client(conn, league)
     transport, dest = _transport(conn, league)

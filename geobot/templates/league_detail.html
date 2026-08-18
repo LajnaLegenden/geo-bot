@@ -7,7 +7,9 @@
   <div class="head-actions">
     <a class="btn-ghost" href="{{ url_for('leagues.edit', league_id=league['id']) }}">Edit</a>
     <a class="btn-ghost" href="{{ url_for('leagues.data', league_id=league['id']) }}">Raw data</a>
-    <a class="btn" href="{{ url_for('games.new', league_id=league['id']) }}">Add game</a>
+    {% if games_editable %}
+    <a class="btn" href="{{ url_for('games.new', league_id=league['id'], season=season['id']) }}">Add game</a>
+    {% endif %}
   </div>
 </div>
 
@@ -34,8 +36,17 @@
   </div>
 </div>
 
+<div class="page-head">
+  <h2 class="section-title">Season</h2>
+  {{ season_picker(seasons, season) }}
+</div>
+
 <div class="card">
-  <h2>Games</h2>
+  {# Games belong to a season, so this card follows the picker below. A season
+     that's been superseded was already played — its games are read-only, since
+     weight/map are read live and editing them would re-score its boards. #}
+  <h2>Games <span class="muted">· {{ season['name'] if season else 'no season' }}
+    {% if not games_editable %}(played — read-only){% endif %}</span></h2>
   {% if games %}
   <table>
     <thead><tr><th>Name</th><th>Map</th><th>Weight</th><th>Time</th><th>New challenge</th><th></th></tr></thead>
@@ -48,17 +59,23 @@
         <td>{{ g['time_limit'] }}s</td>
         <td>{{ cron.describe(g['cron_challenge']) }}</td>
         <td style="text-align:right" class="row-actions">
+          {% if games_editable %}
+          {% if is_current %}
           <form method="post" action="{{ url_for('games.run', league_id=league['id'], game_id=g['id']) }}" class="inline">
             <input type="hidden" name="_csrf" value="{{ csrf_token }}">
             <button class="btn-ghost" type="submit">Run now</button>
           </form>
+          {% endif %}
           <a href="{{ url_for('games.edit', league_id=league['id'], game_id=g['id']) }}">Edit</a>
+          {% else %}<span class="muted">—</span>{% endif %}
         </td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
-  {% else %}<p class="muted">No games yet — add one to start posting challenges.</p>{% endif %}
+  {% else %}<p class="muted">
+    {% if games_editable %}No games in this season yet — add one to start posting challenges.
+    {% else %}This season had no games.{% endif %}</p>{% endif %}
 </div>
 
 <div class="card">
@@ -80,7 +97,7 @@
      Backdating or future-dating is allowed — the date is the whole mechanism. #}
   <form method="post" action="{{ url_for('leagues.start_season', league_id=league['id']) }}"
         class="inline"
-        onsubmit="return confirm('Start a new season? The season board resets from that date.')">
+        onsubmit="return confirm('Start a new season? Its games are copied from the current one (edit them to change maps), and the season board resets from that date.')">
     <input type="hidden" name="_csrf" value="{{ csrf_token }}">
     <input type="text" name="name" value="{{ next_name }}" required>
     <input type="date" name="starts_on" value="{{ next_start }}" required>
@@ -88,10 +105,7 @@
   </form>
 </div>
 
-<div class="page-head">
-  <h2 class="section-title">Stats</h2>
-  {{ season_picker(seasons, season) }}
-</div>
+<h2 class="section-title">Stats <span class="muted">· {{ season['name'] if season else '' }}</span></h2>
 {{ stats_grid('stats.private_fragment', {'league_id': league['id']}) }}
 
 <div class="card">

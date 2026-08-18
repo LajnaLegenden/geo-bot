@@ -172,22 +172,27 @@ _GAME_COLS = ("name", "map_ref", "time_limit", "forbid_moving", "forbid_zooming"
               "forbid_rotating", "weight", "cron_challenge")
 
 
-def add_game(conn, league_id, **f) -> int:
+def add_game(conn, league_id, season_id, **f) -> int:
     cur = conn.execute(
-        "INSERT INTO games(league_id, name, map_ref, time_limit, forbid_moving, "
+        "INSERT INTO games(league_id, season_id, name, map_ref, time_limit, forbid_moving, "
         "forbid_zooming, forbid_rotating, weight, cron_challenge) "
-        "VALUES(?,?,?,?,?,?,?,?,?)",
-        (league_id, f["name"], f["map_ref"], f["time_limit"], f["forbid_moving"],
+        "VALUES(?,?,?,?,?,?,?,?,?,?)",
+        (league_id, season_id, f["name"], f["map_ref"], f["time_limit"], f["forbid_moving"],
          f["forbid_zooming"], f["forbid_rotating"], f["weight"], f["cron_challenge"]),
     )
     conn.commit()
     return cur.lastrowid
 
 
-def list_games(conn, league_id) -> list[sqlite3.Row]:
+def list_games(conn, league_id, season_id=None) -> list[sqlite3.Row]:
+    """One season's games, or every game the league has ever had (season_id=None —
+    used when tearing a league down, where every game's job must be removed)."""
+    where, args = "", [league_id]
+    if season_id is not None:
+        where, args = " AND g.season_id=?", args + [season_id]
     return conn.execute(
         "SELECT g.*, m.name AS map_name FROM games g JOIN maps m ON m.id=g.map_ref "
-        "WHERE g.league_id=? ORDER BY g.name", (league_id,)
+        "WHERE g.league_id=?" + where + " ORDER BY g.name", args
     ).fetchall()
 
 
@@ -228,13 +233,25 @@ def all_games(conn) -> list[sqlite3.Row]:
 # (inclusive) to the next season's `starts_on` (exclusive). No end column to keep
 # in sync, and gaps/overlaps are impossible. See migrations/0005_seasons.sql.
 
-def add_season(conn, league_id, name, starts_on) -> int:
+def add_season(conn, league_id, name, starts_on, copy_games_from_previous=True) -> int:
+    """Cut a season and carry the preceding season's games into it, so a season
+    you cut and forget keeps posting exactly what the last one did. "Preceding"
+    is by date, not by clock, so backdating and future-dating both copy from the
+    season the new one actually follows."""
+    prev = conn.execute(
+        "SELECT id FROM seasons WHERE league_id=? AND starts_on < ? "
+        "ORDER BY starts_on DESC, id DESC LIMIT 1",
+        (league_id, starts_on),
+    ).fetchone()
     cur = conn.execute(
         "INSERT INTO seasons(league_id, name, starts_on) VALUES(?,?,?)",
         (league_id, name, starts_on),
     )
     conn.commit()
-    return cur.lastrowid
+    season_id = cur.lastrowid
+    if copy_games_from_previous and prev:
+        copy_games(conn, league_id, prev["id"], season_id)
+    return season_id
 
 
 def list_seasons(conn, league_id) -> list[sqlite3.Row]:
@@ -266,6 +283,35 @@ def current_season(conn, league_id) -> sqlite3.Row | None:
         "ORDER BY starts_on DESC, id DESC LIMIT 1",
         (league_id,),
     ).fetchone()
+
+
+def season_is_editable(conn, season_id, league_id) -> bool:
+    """True while no later season has started yet — i.e. the current season and
+    any future-dated one. A season that's been superseded has been played, and
+    its games are read-only: weight and map are read live through
+    `challenges.game_id`, so editing them would re-score a finished board."""
+    return conn.execute(
+        "SELECT 1 FROM seasons s WHERE s.id=? AND s.league_id=? AND COALESCE("
+        "  (SELECT MIN(starts_on) FROM seasons"
+        "    WHERE league_id=s.league_id AND starts_on > s.starts_on),"
+        "  '9999-12-31') > date('now')",       # same UTC 'today' as current_season
+        (season_id, league_id),
+    ).fetchone() is not None
+
+
+def copy_games(conn, league_id, from_season_id, to_season_id) -> int:
+    """Clone one season's enabled games into another. New rows, so the source
+    season's history stays bound to the settings it was played under."""
+    cur = conn.execute(
+        "INSERT INTO games(league_id, season_id, name, map_ref, time_limit, "
+        "forbid_moving, forbid_zooming, forbid_rotating, weight, cron_challenge, enabled) "
+        "SELECT league_id, ?, name, map_ref, time_limit, forbid_moving, forbid_zooming, "
+        "forbid_rotating, weight, cron_challenge, 1 "
+        "FROM games WHERE league_id=? AND season_id=? AND enabled=1",
+        (to_season_id, league_id, from_season_id),
+    )
+    conn.commit()
+    return cur.rowcount
 
 
 def season_window(conn, season_id, league_id) -> tuple[str | None, str | None]:
@@ -374,8 +420,10 @@ def league_dump(conn, league_id) -> dict[str, list[sqlite3.Row]]:
 def load_league_data(conn, league_id, since=None, until=None) -> dict:
     """Rebuild the {'challenges', 'scores'} dict store.py's stat functions expect,
     scoped to one league. Each challenge is stamped with its game's `weight` and
-    the game `name` (store.py's `map` field) so the combined weighted board + the
-    per-game ('Maps') split work unchanged — a game is the new unit of play.
+    a `map` key of "<game> · <map>" so the combined weighted board + the per-game
+    ('Maps') split work unchanged — a game is the new unit of play. The key is
+    composite because games are per-season: two seasons' "normal" only share a
+    Maps row when they were played on the same GeoGuessr map.
 
     `since`/`until` are optional ISO dates narrowing it to one season (`until`
     exclusive, i.e. the next season's `starts_on`) — see season_window(). Both
@@ -391,10 +439,12 @@ def load_league_data(conn, league_id, since=None, until=None) -> dict:
     challenges = [
         {"token": r["token"], "date": r["date"], "url": r["url"],
          "countries": json.loads(r["countries"]) if r["countries"] else None,
-         "weight": r["weight"], "map": r["game_name"]}
+         "weight": r["weight"], "map": f"{r['game_name']} · {r['map_name']}"}
         for r in conn.execute(
-            "SELECT c.token, c.date, c.url, c.countries, g.weight, g.name AS game_name "
+            "SELECT c.token, c.date, c.url, c.countries, g.weight, g.name AS game_name, "
+            "       m.name AS map_name "
             "FROM challenges c JOIN games g ON g.id=c.game_id "
+            "JOIN maps m ON m.id=g.map_ref "
             "WHERE c.league_id=?" + window.format(p="c.") + " ORDER BY c.date",
             args,
         )
@@ -429,8 +479,8 @@ if __name__ == "__main__":  # python -m geobot.queries — self-check (in-memory
     s1 = add_season(c, lid, "Season 1", "2026-07-06")   # oldest -> open-ended front
     s2 = add_season(c, lid, "Season 2", "2026-07-13")
     s3 = add_season(c, lid, "Season 3", "2099-01-01")   # future-dated -> upcoming
-    c.execute("INSERT INTO games(id,league_id,name,map_ref,cron_challenge) "
-              "VALUES(1,?,'normal',1,'0 9 * * mon')", (lid,))
+    c.execute("INSERT INTO games(id,league_id,season_id,name,map_ref,cron_challenge) "
+              "VALUES(1,?,?,'normal',1,'0 9 * * mon')", (lid, s1))
     gid = 1
     for i, d in enumerate(["2026-07-01", "2026-07-08", "2026-07-15"]):  # 07-01 predates S1
         add_challenge(c, lid, gid, f"t{i}", "u", d)
@@ -464,4 +514,27 @@ if __name__ == "__main__":  # python -m geobot.queries — self-check (in-memory
     assert [r["name"] for r in rows] == ["Season 3", "Season 2", "Season 1"], "newest first"
     assert rows[0]["ends_on"] is None and rows[1]["ends_on"] == "2098-12-31"
     assert rows[2]["ends_on"] == "2026-07-12"
+
+    # --- season-scoped games -------------------------------------------------
+    assert [g["id"] for g in list_games(c, lid, s1)] == [gid]
+    assert list_games(c, lid, s2) == [], "a season only sees its own games"
+    assert len(list_games(c, lid)) == 1, "no season_id = every game (league teardown)"
+
+    assert not season_is_editable(c, s1, lid), "superseded by s2 -> played, read-only"
+    assert season_is_editable(c, s2, lid), "the current season is editable"
+    assert season_is_editable(c, s3, lid), "a future season is editable (that's the point)"
+
+    # cutting a season copies the games of the season it follows *by date*
+    s15 = add_season(c, lid, "Season 1.5", "2026-07-10")   # lands between s1 and s2
+    copied = list_games(c, lid, s15)
+    assert len(copied) == 1 and copied[0]["id"] != gid, copied
+    assert copied[0]["name"] == "normal" and copied[0]["weight"] == 1.0
+
+    # the copy is a separate row, so re-weighting it can't re-score old history
+    c.execute("UPDATE games SET weight=3.0 WHERE id=?", (copied[0]["id"],))
+    c.commit()
+    ch = load_league_data(c, lid)["challenges"][0]
+    assert ch["weight"] == 1.0, "a played season keeps the weight it was played with"
+    assert ch["map"] == "normal · m", "Maps key is game + map, so a swapped map splits"
+
     print("queries ok")
