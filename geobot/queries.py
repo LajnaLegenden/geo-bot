@@ -346,6 +346,29 @@ def upsert_scores(conn, league_id, token, result: dict) -> None:
     conn.commit()
 
 
+# --- raw row dump (the /data inspector) --------------------------------------
+
+def league_dump(conn, league_id) -> dict[str, list[sqlite3.Row]]:
+    """Every row this league owns, exactly as stored, newest first where there's
+    a date. The template renders columns straight off `row.keys()`, so a later
+    migration that adds a column shows up here without touching this function.
+    Names are joined in where an id alone tells you nothing (map, game)."""
+    def q(sql):
+        return conn.execute(sql, (league_id,)).fetchall()
+
+    return {
+        "games": q("SELECT g.*, m.name AS map_name FROM games g "
+                   "JOIN maps m ON m.id=g.map_ref WHERE g.league_id=? ORDER BY g.id"),
+        "seasons": q("SELECT * FROM seasons WHERE league_id=? "
+                     "ORDER BY starts_on DESC, id DESC"),
+        "challenges": q("SELECT c.*, g.name AS game FROM challenges c "
+                        "JOIN games g ON g.id=c.game_id WHERE c.league_id=? "
+                        "ORDER BY c.date DESC, c.token"),
+        "scores": q("SELECT * FROM scores WHERE league_id=? "
+                    "ORDER BY date DESC, score DESC"),
+    }
+
+
 # --- stats seam -------------------------------------------------------------
 
 def load_league_data(conn, league_id, since=None, until=None) -> dict:
@@ -430,6 +453,12 @@ if __name__ == "__main__":  # python -m geobot.queries — self-check (in-memory
     assert _dates(*season_window(c, s3, lid)) == []
     assert _dates() == ["2026-07-01", "2026-07-08", "2026-07-15"]
     assert len(load_league_data(c, lid, *season_window(c, s1, lid))["challenges"]) == 2
+
+    dump = league_dump(c, lid)
+    assert [t for t, rs in dump.items() if not rs] == [], dump      # every table populated
+    assert [r["date"] for r in dump["scores"]] == ["2026-07-15", "2026-07-08", "2026-07-01"]
+    assert dump["challenges"][0]["game"] == "normal", "id-only columns get a name joined in"
+    assert "guesses" in dump["scores"][0].keys(), "columns come straight off the row"
 
     rows = list_seasons(c, lid)
     assert [r["name"] for r in rows] == ["Season 3", "Season 2", "Season 1"], "newest first"

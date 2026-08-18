@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ league['name'] }} data · GeoBot{% endblock %}
+
+{# Columns come from the row itself, so this renders any table (and any column a
+   later migration adds) without knowing the schema. #}
+{% macro raw_table(rows) %}
+  {% if rows %}
+  <div class="raw">
+    <table>
+      <thead><tr>{% for k in rows[0].keys() %}<th>{{ k }}</th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+        {% for k in rows[0].keys() %}
+          <td>{% if r[k] is none %}<span class="muted">NULL</span>{% else %}{{ r[k] }}{% endif %}</td>
+        {% endfor %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<p class="muted">No rows.</p>{% endif %}
+{% endmacro %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{{ league['name'] }} · raw data</h1>
+  <div class="head-actions">
+    <a class="btn-ghost" href="{{ url_for('leagues.detail', league_id=league['id']) }}">Back to league</a>
+  </div>
+</div>
+
+{% for name, rows in tables.items() %}
+<div class="card">
+  <h2>{{ name }} <span class="muted">({{ rows|length }})</span></h2>
+  {{ raw_table(rows) }}
+</div>
+{% endfor %}
+{% endblock %}

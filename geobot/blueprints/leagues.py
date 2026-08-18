@@ -117,6 +117,19 @@ def detail(league_id):
                            next_start=next_monday.isoformat())
 
 
+@bp.get("/<int:league_id>/data")
+@login_required
+def data(league_id):
+    """Read-only row dump of everything this league owns — for eyeballing what
+    the DB actually holds when a board looks wrong. Owner-scoped like every other
+    league read; no paging, so Ctrl-F is the filter."""
+    league = queries.get_league(db.conn(), league_id, session["uid"])
+    if not league:
+        abort(404)
+    return render_template("league_data.html", league=league,
+                           tables=queries.league_dump(db.conn(), league_id))
+
+
 @bp.get("/<int:league_id>/edit")
 @login_required
 def edit(league_id):
