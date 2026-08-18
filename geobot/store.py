@@ -111,14 +111,19 @@ def _token_weight(data: dict) -> dict[str, float]:
     return {c["token"]: c.get("weight", 1.0) for c in data["challenges"]}
 
 
+MAX_SCORE = 25_000  # a perfect GeoGuessr game; weighting can't beat it
+
+
 def _weighted_board(scores: list[dict], token_weight: dict) -> list[dict]:
     """Sum each player's scores, scaling by each challenge's `weight` so an easier
-    map doesn't dominate. Returns [{'name', 'total', 'rounds'}] high to low."""
+    map doesn't dominate. Each weighted score is capped at MAX_SCORE, so a heavy
+    weight tops out at a perfect game rather than paying above the raw ceiling.
+    Returns [{'name', 'total', 'rounds'}] high to low."""
     agg: dict[str, dict] = {}
     for s in scores:
         key = s["user_id"] or s["name"]
         e = agg.setdefault(key, {"key": key, "name": s["name"], "total": 0.0, "rounds": 0})
-        e["total"] += s["score"] * token_weight.get(s["token"], 1.0)
+        e["total"] += min(s["score"] * token_weight.get(s["token"], 1.0), MAX_SCORE)
         e["rounds"] += 1
         e["name"] = s["name"]
     rows = list(agg.values())
@@ -482,6 +487,13 @@ if __name__ == "__main__":  # python -m geobot.store — self-check
             ],
         }
         assert all_time_leaderboard(seam)[0]["total"] == 300, all_time_leaderboard(seam)  # 100*1 + 100*2
+
+        # weighted score is capped at a perfect game: 20000*2 -> 25000, not 40000
+        capped = {
+            "challenges": [{"token": "y", "date": "2026-07-06", "url": "", "map": "b", "weight": 2.0}],
+            "scores": [{"date": "2026-07-06", "token": "y", "user_id": "p", "name": "P", "score": 20000}],
+        }
+        assert all_time_leaderboard(capped)[0]["total"] == MAX_SCORE, all_time_leaderboard(capped)
 
         # season points: two weeks; today in week of 2026-07-06 (that week is current)
         _save(
