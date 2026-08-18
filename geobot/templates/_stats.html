@@ -12,12 +12,33 @@
   ('countries', '🌍 Best / worst countries', 3, -1),
   ('roundwins', '⚔️ Round wins',             2, -1),
 ] %}
+{# Season switching is a plain GET form to the current URL — the ?season= it sets
+   is also threaded into every fragment URL below, so the 60s htmx polls stay on
+   the selected season. 👑 All-time ignores it server-side by design. #}
+{% macro season_picker(seasons, season) %}
+{% if seasons and seasons|length > 1 %}
+<form method="get" class="season-pick">
+  <label>Season
+    <select name="season" onchange="this.form.submit()">
+      {% for s in seasons %}
+      <option value="{{ s['id'] }}"{% if season and s['id'] == season['id'] %} selected{% endif %}>
+        {{ s['name'] }} · {% if s['ends_on'] %}{{ s['starts_on'] }} → {{ s['ends_on'] }}{% else %}from {{ s['starts_on'] }}{% endif %}
+      </option>
+      {% endfor %}
+    </select>
+  </label>
+  <noscript><button class="btn-ghost" type="submit">Show</button></noscript>
+</form>
+{% endif %}
+{% endmacro %}
 {% macro stats_grid(endpoint, kwargs) %}
 <div class="grid stats">
   {% for key, heading, sortcol, sortdir in STAT_SECTIONS %}
   <section{% if key in ('players', 'mapplayers') %} class="wide"{% endif %}>
-    <h2>{{ heading }}</h2>
-    <div hx-get="{{ url_for(endpoint, key=key, **kwargs) }}" hx-trigger="load, every 60s"
+    {# A finished season has no "this week" — show its last week instead. #}
+    <h2>{% if key == 'weekly' and not is_current|default(true) %}🏆 Final week{% else %}{{ heading }}{% endif %}</h2>
+    <div hx-get="{{ url_for(endpoint, key=key, season=season['id'] if season else none, **kwargs) }}"
+         hx-trigger="load, every 60s"
          {% if sortcol is not none %}data-sort-col="{{ sortcol }}" data-sort-dir="{{ sortdir }}"{% endif %}>…</div>
   </section>
   {% endfor %}

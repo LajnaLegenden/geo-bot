@@ -123,6 +123,13 @@ def post_leaderboard(league_id: int) -> str:
         transport.send_alert(dest, "cookie_expired")
         return "GeoGuessr cookie invalid"
     n = _fetch_scores(conn, league_id, gg)  # courtesy pull before posting
+    # ponytail: deliberately unwindowed by season. The weekly board is already
+    # confined to this week, so it's the current season's in every normal case,
+    # and windowing this load would also window _links() — whose last challenge
+    # is the ▶️ Play button, which would vanish for the first days of a new
+    # season. Ceiling: a boundary landing mid-week lets that week's pre-cut days
+    # into the posted board. Upgrade path if that ever matters: window the board
+    # only, keep _links on the full history.
     data = queries.load_league_data(conn, league_id)
     rows = store.weekly_leaderboard(data)
     transport.send_leaderboard(dest, rows, league["name"], _links(league, data))

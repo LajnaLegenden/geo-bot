@@ -128,10 +128,15 @@ def _weighted_board(scores: list[dict], token_weight: dict) -> list[dict]:
     return rows
 
 
-def weekly_leaderboard(data: dict | None = None) -> list[dict]:
-    """Weighted board for the current week (scores since Monday)."""
+def weekly_leaderboard(data: dict | None = None, today: date | None = None) -> list[dict]:
+    """Weighted board for the current week (scores since Monday). `today` picks a
+    different week — the stats page passes a finished season's last scored date to
+    show that season's final week instead of an empty current one.
+    # ponytail: the filter is >= Monday with no upper bound, so a historical
+    # `today` relies on `data` already being windowed past it (which it is: the
+    # caller windows to the season and passes that season's last date)."""
     data = data if data is not None else _load()
-    start = week_start()
+    start = week_start(today)
     scores = [
         s for s in data["scores"] if date.fromisoformat(s["date"]) >= start
     ]
@@ -501,6 +506,17 @@ if __name__ == "__main__":  # python -m geobot.store — self-check
         assert sb["B"]["points"] == 6 and sb["B"]["points_finished"] == 2, sb  # 2 + 4(prov)
         assert sb["C"]["points"] == 1 and sb["C"]["points_finished"] == 1, sb
         assert sb["A"]["weeks_played"] == 2 and sb["C"]["weeks_played"] == 1, sb
+
+        # weekly board's `today`: how the stats page shows a *finished* season's
+        # final week instead of an empty current one.
+        wk = {r["name"]: r["total"] for r in weekly_leaderboard(_load(), date(2026, 7, 8))}
+        assert wk == {"B": 1000, "A": 900}, wk               # week of Mon 2026-07-06
+        # ...and the same call on data windowed to a season that ended 2026-07-05
+        # yields that season's final week — window + `today` together, as the
+        # stats page does it.
+        past = {**_load(), "scores": [s for s in _load()["scores"] if s["date"] < "2026-07-06"]}
+        wk = {r["name"]: r["total"] for r in weekly_leaderboard(past, date(2026, 6, 29))}
+        assert wk == {"A": 1000, "B": 800, "C": 600}, wk     # week of Mon 2026-06-29
 
     # players_not_played_today: roster = anyone with a score this week; "played"
     # requires *every* challenge dated `today`. 2026-07-24 is a Fri (week Mon = 20).

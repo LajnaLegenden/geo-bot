@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_stats.html" import stats_grid with context %}
+{% from "_stats.html" import stats_grid, season_picker with context %}
 {% block title %}{{ league['name'] }} · GeoBot{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -60,7 +60,37 @@
   {% else %}<p class="muted">No games yet — add one to start posting challenges.</p>{% endif %}
 </div>
 
-<h2 class="section-title">Stats</h2>
+<div class="card">
+  <h2>Seasons</h2>
+  <table>
+    <thead><tr><th>Name</th><th>Starts</th><th>Ends</th></tr></thead>
+    <tbody>
+    {% for s in seasons %}
+      <tr>
+        <td>{{ s['name'] }}</td>
+        <td>{{ s['starts_on'] }}</td>
+        <td>{% if s['ends_on'] %}{{ s['ends_on'] }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {# Defaults to next Monday: season points come from weekly podiums, so a
+     mid-week boundary splits one week into two and awards two podiums for it.
+     Backdating or future-dating is allowed — the date is the whole mechanism. #}
+  <form method="post" action="{{ url_for('leagues.start_season', league_id=league['id']) }}"
+        class="inline"
+        onsubmit="return confirm('Start a new season? The season board resets from that date.')">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <input type="text" name="name" value="{{ next_name }}" required>
+    <input type="date" name="starts_on" value="{{ next_start }}" required>
+    <button class="btn" type="submit">Start new season</button>
+  </form>
+</div>
+
+<div class="page-head">
+  <h2 class="section-title">Stats</h2>
+  {{ season_picker(seasons, season) }}
+</div>
 {{ stats_grid('stats.private_fragment', {'league_id': league['id']}) }}
 
 <div class="card">

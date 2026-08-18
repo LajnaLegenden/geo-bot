@@ -1,7 +1,10 @@
 {% extends "base.html" %}
-{% from "_stats.html" import stats_grid with context %}
+{% from "_stats.html" import stats_grid, season_picker with context %}
 {% block title %}{{ league['name'] }} · stats{% endblock %}
 {% block content %}
-<div class="page-head"><h1>{{ league['name'] }}</h1></div>
+<div class="page-head">
+  <h1>{{ league['name'] }}</h1>
+  {{ season_picker(seasons, season) }}
+</div>
 {{ stats_grid('stats.public_fragment', {'slug': slug}) }}
 {% endblock %}
