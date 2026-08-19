@@ -111,14 +111,19 @@ def _token_weight(data: dict) -> dict[str, float]:
     return {c["token"]: c.get("weight", 1.0) for c in data["challenges"]}
 
 
+MAX_SCORE = 25_000  # a perfect GeoGuessr game; weighting can't beat it
+
+
 def _weighted_board(scores: list[dict], token_weight: dict) -> list[dict]:
     """Sum each player's scores, scaling by each challenge's `weight` so an easier
-    map doesn't dominate. Returns [{'name', 'total', 'rounds'}] high to low."""
+    map doesn't dominate. Each weighted score is capped at MAX_SCORE, so a heavy
+    weight tops out at a perfect game rather than paying above the raw ceiling.
+    Returns [{'name', 'total', 'rounds'}] high to low."""
     agg: dict[str, dict] = {}
     for s in scores:
         key = s["user_id"] or s["name"]
         e = agg.setdefault(key, {"key": key, "name": s["name"], "total": 0.0, "rounds": 0})
-        e["total"] += s["score"] * token_weight.get(s["token"], 1.0)
+        e["total"] += min(s["score"] * token_weight.get(s["token"], 1.0), MAX_SCORE)
         e["rounds"] += 1
         e["name"] = s["name"]
     rows = list(agg.values())
@@ -128,10 +133,15 @@ def _weighted_board(scores: list[dict], token_weight: dict) -> list[dict]:
     return rows
 
 
-def weekly_leaderboard(data: dict | None = None) -> list[dict]:
-    """Weighted board for the current week (scores since Monday)."""
+def weekly_leaderboard(data: dict | None = None, today: date | None = None) -> list[dict]:
+    """Weighted board for the current week (scores since Monday). `today` picks a
+    different week — the stats page passes a finished season's last scored date to
+    show that season's final week instead of an empty current one.
+    # ponytail: the filter is >= Monday with no upper bound, so a historical
+    # `today` relies on `data` already being windowed past it (which it is: the
+    # caller windows to the season and passes that season's last date)."""
     data = data if data is not None else _load()
-    start = week_start()
+    start = week_start(today)
     scores = [
         s for s in data["scores"] if date.fromisoformat(s["date"]) >= start
     ]
@@ -478,6 +488,13 @@ if __name__ == "__main__":  # python -m geobot.store — self-check
         }
         assert all_time_leaderboard(seam)[0]["total"] == 300, all_time_leaderboard(seam)  # 100*1 + 100*2
 
+        # weighted score is capped at a perfect game: 20000*2 -> 25000, not 40000
+        capped = {
+            "challenges": [{"token": "y", "date": "2026-07-06", "url": "", "map": "b", "weight": 2.0}],
+            "scores": [{"date": "2026-07-06", "token": "y", "user_id": "p", "name": "P", "score": 20000}],
+        }
+        assert all_time_leaderboard(capped)[0]["total"] == MAX_SCORE, all_time_leaderboard(capped)
+
         # season points: two weeks; today in week of 2026-07-06 (that week is current)
         _save(
             {
@@ -501,6 +518,17 @@ if __name__ == "__main__":  # python -m geobot.store — self-check
         assert sb["B"]["points"] == 6 and sb["B"]["points_finished"] == 2, sb  # 2 + 4(prov)
         assert sb["C"]["points"] == 1 and sb["C"]["points_finished"] == 1, sb
         assert sb["A"]["weeks_played"] == 2 and sb["C"]["weeks_played"] == 1, sb
+
+        # weekly board's `today`: how the stats page shows a *finished* season's
+        # final week instead of an empty current one.
+        wk = {r["name"]: r["total"] for r in weekly_leaderboard(_load(), date(2026, 7, 8))}
+        assert wk == {"B": 1000, "A": 900}, wk               # week of Mon 2026-07-06
+        # ...and the same call on data windowed to a season that ended 2026-07-05
+        # yields that season's final week — window + `today` together, as the
+        # stats page does it.
+        past = {**_load(), "scores": [s for s in _load()["scores"] if s["date"] < "2026-07-06"]}
+        wk = {r["name"]: r["total"] for r in weekly_leaderboard(past, date(2026, 6, 29))}
+        assert wk == {"A": 1000, "B": 800, "C": 600}, wk     # week of Mon 2026-06-29
 
     # players_not_played_today: roster = anyone with a score this week; "played"
     # requires *every* challenge dated `today`. 2026-07-24 is a Fri (week Mon = 20).

@@ -57,6 +57,13 @@ def post_challenge(league_id: int, game_id: int) -> str:
     ).fetchone()
     if not league or not game:
         return "league/game no longer exists"
+    # Games belong to a season, and every game keeps its cron job registered
+    # forever — so the guard is here, not in the scheduler. A future-dated season
+    # therefore starts posting on its own date and the outgoing one stops, with
+    # nothing to re-register (same way the boards roll over: by calendar).
+    current = queries.current_season(conn, league_id)
+    if current is None or game["season_id"] != current["id"]:
+        return "not this season's game"
     m = conn.execute("SELECT map_id FROM maps WHERE id=?", (game["map_ref"],)).fetchone()
     gg = _client(conn, league)
     transport, dest = _transport(conn, league)
@@ -123,6 +130,13 @@ def post_leaderboard(league_id: int) -> str:
         transport.send_alert(dest, "cookie_expired")
         return "GeoGuessr cookie invalid"
     n = _fetch_scores(conn, league_id, gg)  # courtesy pull before posting
+    # ponytail: deliberately unwindowed by season. The weekly board is already
+    # confined to this week, so it's the current season's in every normal case,
+    # and windowing this load would also window _links() — whose last challenge
+    # is the ▶️ Play button, which would vanish for the first days of a new
+    # season. Ceiling: a boundary landing mid-week lets that week's pre-cut days
+    # into the posted board. Upgrade path if that ever matters: window the board
+    # only, keep _links on the full history.
     data = queries.load_league_data(conn, league_id)
     rows = store.weekly_leaderboard(data)
     transport.send_leaderboard(dest, rows, league["name"], _links(league, data))

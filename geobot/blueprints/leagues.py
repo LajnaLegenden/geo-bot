@@ -4,13 +4,15 @@ games. Every referenced credential is re-checked against the caller before save.
 from __future__ import annotations
 
 import sqlite3
+from datetime import date, timedelta
 
 from flask import (
     Blueprint, abort, flash, redirect, render_template, request, session, url_for,
 )
 
-from .. import cron_builder, db, jobs, queries, scheduler
+from .. import cron_builder, db, jobs, queries, scheduler, store
 from ..security import login_required
+from .stats import season_context
 
 bp = Blueprint("leagues", __name__, url_prefix="/leagues")
 
@@ -102,9 +104,34 @@ def detail(league_id):
     league = queries.get_league(db.conn(), league_id, uid)
     if not league:
         abort(404)
-    games = queries.list_games(db.conn(), league_id)
+    seasons, selected, is_current = season_context(db.conn(), league_id)
+    # Games follow the season picker: the selected season's games, editable only
+    # while that season hasn't been superseded (a played season is read-only).
+    games = queries.list_games(db.conn(), league_id, selected["id"]) if selected else []
+    games_editable = bool(selected) and queries.season_is_editable(
+        db.conn(), selected["id"], league_id)
+    # Default the new season to next Monday: seasons are scored from weekly
+    # podiums, so a boundary on any other day splits one week into two and hands
+    # out two podiums for it.
+    next_monday = store.week_start() + timedelta(days=7)
     return render_template("league_detail.html", league=league, games=games,
-                           cron=cron_builder)
+                           cron=cron_builder, seasons=seasons, season=selected,
+                           is_current=is_current, games_editable=games_editable,
+                           next_name=f"Season {len(seasons) + 1}",
+                           next_start=next_monday.isoformat())
+
+
+@bp.get("/<int:league_id>/data")
+@login_required
+def data(league_id):
+    """Read-only row dump of everything this league owns — for eyeballing what
+    the DB actually holds when a board looks wrong. Owner-scoped like every other
+    league read; no paging, so Ctrl-F is the filter."""
+    league = queries.get_league(db.conn(), league_id, session["uid"])
+    if not league:
+        abort(404)
+    return render_template("league_data.html", league=league,
+                           tables=queries.league_dump(db.conn(), league_id))
 
 
 @bp.get("/<int:league_id>/edit")
@@ -156,6 +183,34 @@ def delete(league_id):
         scheduler.on_league_deleted(league_id, game_ids)
         flash("League deleted.")
     return redirect(url_for("dashboard"))
+
+
+@bp.post("/<int:league_id>/seasons")
+@login_required
+def start_season(league_id):
+    """Cut a new season. Pure data — no scheduler call: the current season is
+    whichever has the greatest starts_on <= today, so a future-dated one rolls
+    over on its own date."""
+    if not queries.get_league(db.conn(), league_id, session["uid"]):
+        abort(404)
+    name = (request.form.get("name") or "").strip()
+    starts_on = (request.form.get("starts_on") or "").strip()
+    if not name:
+        flash("Season name is required.")
+        return redirect(url_for("leagues.detail", league_id=league_id))
+    try:
+        starts_on = date.fromisoformat(starts_on).isoformat()
+    except ValueError:
+        flash("Season start must be a valid date.")
+        return redirect(url_for("leagues.detail", league_id=league_id))
+    try:
+        queries.add_season(db.conn(), league_id, name, starts_on)
+    except sqlite3.IntegrityError:
+        db.conn().rollback()
+        flash(f"A season already starts on {starts_on}.")
+        return redirect(url_for("leagues.detail", league_id=league_id))
+    flash(f"{name} starts {starts_on}.")
+    return redirect(url_for("leagues.detail", league_id=league_id))
 
 
 @bp.post("/<int:league_id>/pull-now")

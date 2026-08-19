@@ -18,7 +18,12 @@ from . import db, migrate, queries
 
 def import_store(conn, league_id: int, path: str) -> tuple[int, int, int]:
     data = json.load(open(path))
-    games = {g["name"]: g["id"] for g in queries.list_games(conn, league_id)}
+    # Games are per-season; imported history predates everything, so it maps onto
+    # the league's OLDEST season (whose window is open-ended at the front). In the
+    # documented flow that's the only season there is.
+    seasons = queries.list_seasons(conn, league_id)          # newest first
+    games = {g["name"]: g["id"]
+             for g in queries.list_games(conn, league_id, seasons[-1]["id"] if seasons else None)}
     scores_by_token: dict[str, list] = {}
     for s in data.get("scores", []):
         scores_by_token.setdefault(s["token"], []).append(s)

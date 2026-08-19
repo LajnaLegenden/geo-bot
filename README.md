@@ -16,6 +16,8 @@ layer is pluggable (Discord etc. drop in later).
   leaderboard + a results schedule + an optional public stats page.
 - **Game** — inside a league: one map + challenge settings (time limit, movement
   rules) + a score `weight` + its own "post a new challenge" schedule.
+- **Season** — a dated slice of a league's history. Defined only by its start
+  date; it runs until the next season starts, so seasons can't gap or overlap.
 
 `normal` + `fast` = two games in one league feeding one weighted leaderboard.
 
@@ -65,6 +67,26 @@ schedules itself).
 4. Add one or more **games** (map + settings + weight + challenge schedule).
 5. Use **Run now** on a game / **Post results now** on a league to test without
    waiting for the schedule.
+
+## Seasons
+
+Every league has at least one season. **Start new season** on the league page
+takes a name and a start date — defaulting to next Monday, because season points
+come from weekly podiums and a mid-week boundary would split one week into two
+and award two podiums for it. The date is backdatable (to tidy up history) and
+future-datable: the live season is simply whichever has the latest start date not
+in the future, so a season dated ahead becomes current on its own date with no
+job to fire.
+
+The season dropdown on the league page and on `/s/<slug>` scopes every board to
+the selected season via `?season=<id>` — a shareable link. **👑 All-time is the
+one exception and always spans the league's whole history.** The oldest season is
+open-ended at the front, so anything dated before it (e.g. history imported after
+the league was created) still counts rather than falling into a gap. Viewing a
+finished season swaps 🏆 This week for 🏆 Final week — that season's last week.
+
+Slack posts are not season-scoped: the posted board is the weekly one, which is
+already the current season's in every normal case.
 
 Stats are private by default; a league with a public slug is viewable at
 `/s/<slug>`. For the leaderboard's **📊 Stats** button to appear, set the

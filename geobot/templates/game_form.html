@@ -2,9 +2,13 @@
 {% block title %}{{ 'Edit' if game else 'New' }} game · GeoBot{% endblock %}
 {% block content %}
 {% set sched = cron.parse_cron(game['cron_challenge']) if game else {'days': ['mon','tue','wed','thu','fri'], 'hour': 9, 'minute': 50} %}
-<div class="page-head"><h1>{{ 'Edit game' if game else 'New game' }} · {{ league['name'] }}</h1></div>
+<div class="page-head"><h1>{{ 'Edit game' if game else 'New game' }} · {{ league['name'] }}
+  {% if season %}<span class="muted">· {{ season['name'] }}</span>{% endif %}</h1></div>
 <div class="card">
   <form method="post" action="{{ url_for('games.update', league_id=league['id'], game_id=game['id']) if game else url_for('games.create', league_id=league['id']) }}">
+    {# which season this game belongs to — the GET carried it in ?season=, the
+       POST carries it here (a game is created inside exactly one season) #}
+    {% if not game and season %}<input type="hidden" name="season_id" value="{{ season['id'] }}">{% endif %}
     <input type="hidden" name="_csrf" value="{{ csrf_token }}">
     <label>Name<input name="name" value="{{ game['name'] if game else '' }}" placeholder="normal" required></label>
     <label>Map

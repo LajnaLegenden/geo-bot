@@ -172,21 +172,23 @@ def _roundwins_html(rows: list[dict]) -> str:
             f"<th>Rounds</th></tr></thead><tbody>{body}</tbody></table>")
 
 
+# (data, week_today) -> html. Only the weekly board cares about `week_today`;
+# the rest are already scoped by whatever window `data` was loaded with.
 FRAGMENTS = {
-    "weekly": lambda d: _board_html(store.weekly_leaderboard(d)),
-    "season": lambda d: _season_html(store.season_leaderboard(d)),
-    "alltime": lambda d: _board_html(store.all_time_leaderboard(d)),
-    "maps": lambda d: _maps_html(store.map_stats(d)),
-    "mapplayers": lambda d: _map_players_html(store.map_player_stats(d)),
-    "players": lambda d: _players_html(store.player_stats(d)),
-    "countries": lambda d: _countries_html(store.player_countries(d)),
-    "roundwins": lambda d: _roundwins_html(store.round_wins(d)),
+    "weekly": lambda d, t: _board_html(store.weekly_leaderboard(d, t)),
+    "season": lambda d, t: _season_html(store.season_leaderboard(d)),
+    "alltime": lambda d, t: _board_html(store.all_time_leaderboard(d)),
+    "maps": lambda d, t: _maps_html(store.map_stats(d)),
+    "mapplayers": lambda d, t: _map_players_html(store.map_player_stats(d)),
+    "players": lambda d, t: _players_html(store.player_stats(d)),
+    "countries": lambda d, t: _countries_html(store.player_countries(d)),
+    "roundwins": lambda d, t: _roundwins_html(store.round_wins(d)),
 }
 
 
-def render(key: str, data: dict) -> str | None:
+def render(key: str, data: dict, week_today=None) -> str | None:
     fn = FRAGMENTS.get(key)
-    return fn(data) if fn else None
+    return fn(data, week_today) if fn else None
 
 
 if __name__ == "__main__":  # python -m geobot.stats_html — self-check
