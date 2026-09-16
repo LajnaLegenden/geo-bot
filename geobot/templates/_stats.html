@@ -4,6 +4,7 @@
    sort.js reads data-sort-col/dir off the box and applies it on load + each poll. #}
 {% set STAT_SECTIONS = [
   ('weekly',    '🏆 This week',              2, -1),
+  ('challenges','🗓️ This week\'s challenges', none, none),
   ('season',    '🏅 Season points',          3, -1),
   ('alltime',   '👑 All-time',               2, -1),
   ('maps',      '🗺️ Maps',                   1, -1),
@@ -12,6 +13,13 @@
   ('countries', '🌍 Best / worst countries', 3, -1),
   ('roundwins', '⚔️ Round wins',             2, -1),
 ] %}
+{# A season that isn't live has no "this week" — the week-scoped boards show its
+   final week instead (stats._week_today feeds them that date), so their headings
+   swap too. Keys absent here keep their heading in every season. #}
+{% set FINAL_HEADINGS = {
+  'weekly':     '🏆 Final week',
+  'challenges': '🗓️ Final week\'s challenges',
+} %}
 {# Season switching is a plain GET form to the current URL — the ?season= it sets
    is also threaded into every fragment URL below, so the 60s htmx polls stay on
    the selected season. 👑 All-time ignores it server-side by design. #}
@@ -34,9 +42,8 @@
 {% macro stats_grid(endpoint, kwargs) %}
 <div class="grid stats">
   {% for key, heading, sortcol, sortdir in STAT_SECTIONS %}
-  <section{% if key in ('players', 'mapplayers') %} class="wide"{% endif %}>
-    {# A finished season has no "this week" — show its last week instead. #}
-    <h2>{% if key == 'weekly' and not is_current|default(true) %}🏆 Final week{% else %}{{ heading }}{% endif %}</h2>
+  <section{% if key in ('players', 'mapplayers', 'challenges') %} class="wide"{% endif %}>
+    <h2>{% if key in FINAL_HEADINGS and not is_current|default(true) %}{{ FINAL_HEADINGS[key] }}{% else %}{{ heading }}{% endif %}</h2>
     <div hx-get="{{ url_for(endpoint, key=key, season=season['id'] if season else none, **kwargs) }}"
          hx-trigger="load, every 60s"
          {% if sortcol is not none %}data-sort-col="{{ sortcol }}" data-sort-dir="{{ sortdir }}"{% endif %}>…</div>

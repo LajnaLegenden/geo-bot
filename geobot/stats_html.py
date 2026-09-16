@@ -5,6 +5,7 @@ functions over one league's data (queries.load_league_data). htmx polls them.
 from __future__ import annotations
 
 import html
+from datetime import date
 
 from . import store
 
@@ -62,6 +63,45 @@ def _board_html(rows: list[dict]) -> str:
     )
     return ("<table><thead><tr><th>#</th><th>Player</th><th>Points</th>"
             f"<th>Games</th></tr></thead><tbody>{body}</tbody></table>")
+
+
+def _challenges_html(rows: list[dict]) -> str:
+    """The week's challenges grouped under a day heading, newest day first, each
+    with its winner and who skipped it. Rows arrive pre-sorted (day desc, game
+    asc) and that grouping *is* the order, so the board takes no default sort
+    (`none, none` in STAT_SECTIONS). A click still sorts, but only within one
+    day's own table, so the day headings stay correct either way."""
+    if not rows:
+        return "<p>No challenges this week.</p>"
+    out, day = ["<div class='challenges'>"], None
+    for r in rows:
+        if r["date"] != day:
+            if day is not None:
+                out.append("</tbody></table>")
+            day = r["date"]
+            out.append(
+                f"<h3>{html.escape(date.fromisoformat(day).strftime('%a %d %b'))}</h3>"
+                "<table><thead><tr><th>Game</th><th>Winner</th>"
+                "<th title='finished it, out of this week&#39;s players'>Played</th>"
+                "<th>Not played</th></tr></thead><tbody>"
+            )
+        name = html.escape(r["map"])
+        game = (
+            f"<a href='{html.escape(r['url'])}' target='_blank' rel='noopener'>{name}</a>"
+            if r["url"] else name
+        )
+        winner = (
+            f"{_avatar_img(r['winner_pin'])}{html.escape(r['winner'])} "
+            f"{r['winner_score']:,}"
+            if r["winner"] else "—"
+        )
+        missing = ", ".join(html.escape(n) for n in r["missing"]) or "—"
+        out.append(
+            f"<tr><td>{game}</td><td>{winner}</td>"
+            f"<td>{r['played']}/{r['roster']}</td><td>{missing}</td></tr>"
+        )
+    out.append("</tbody></table></div>")
+    return "".join(out)
 
 
 def _season_html(rows: list[dict]) -> str:
@@ -172,10 +212,12 @@ def _roundwins_html(rows: list[dict]) -> str:
             f"<th>Rounds</th></tr></thead><tbody>{body}</tbody></table>")
 
 
-# (data, week_today) -> html. Only the weekly board cares about `week_today`;
-# the rest are already scoped by whatever window `data` was loaded with.
+# (data, week_today) -> html. Only the week-scoped boards care about
+# `week_today`; the rest are already scoped by whatever window `data` was
+# loaded with.
 FRAGMENTS = {
     "weekly": lambda d, t: _board_html(store.weekly_leaderboard(d, t)),
+    "challenges": lambda d, t: _challenges_html(store.weekly_challenges(d, t)),
     "season": lambda d, t: _season_html(store.season_leaderboard(d)),
     "alltime": lambda d, t: _board_html(store.all_time_leaderboard(d)),
     "maps": lambda d, t: _maps_html(store.map_stats(d)),
@@ -196,4 +238,21 @@ if __name__ == "__main__":  # python -m geobot.stats_html — self-check
     assert _rank_cells([10, 8, 8, 8, 5]) == ["🥇", "🥈", "🥈", "🥈", "5."]  # 3-way tie for 2nd
     assert _rank_cells([5, 4, 3]) == ["🥇", "🥈", "🥉"]
     assert _rank_cells([]) == []
+
+    # challenges board: one <h3> + table per day, in the order the rows arrive
+    ch = _challenges_html([
+        {"date": "2026-07-24", "map": "fast", "url": "http://c/f1", "winner": "A, B",
+         "winner_score": 5000, "winner_pin": None, "played": 2, "roster": 3,
+         "missing": ["C"]},
+        {"date": "2026-07-22", "map": "normal", "url": "", "winner": "",
+         "winner_score": 0, "winner_pin": None, "played": 0, "roster": 3,
+         "missing": ["A", "B", "C"]},
+    ])
+    assert ch.count("<h3>") == 2 and ch.count("<table>") == 2, ch
+    assert "Mon 20 Jul" not in ch and "Fri 24 Jul" in ch, ch
+    assert "<a href='http://c/f1'" in ch, ch          # play link when a url exists
+    assert ">normal</td>" in ch or ">normal<" in ch, ch  # plain text when it doesn't
+    assert "<td>2/3</td>" in ch and "<td>0/3</td>" in ch, ch
+    assert "A, B, C" in ch, ch                        # everyone missing, unplayed day
+    assert _challenges_html([]) == "<p>No challenges this week.</p>"
     print("stats_html ok")

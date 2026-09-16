@@ -172,6 +172,61 @@ def players_not_played_today(data: dict, today: str) -> list[str]:
     )
 
 
+def weekly_challenges(data: dict | None = None, today: date | None = None) -> list[dict]:
+    """The displayed week's challenges, newest day first:
+    [{'date', 'map', 'url', 'winner', 'winner_score', 'winner_pin',
+      'played', 'roster', 'missing'}].
+
+    Roster = anyone with a score since Monday — the same implicit roster
+    players_not_played_today uses, so the stats page and the Slack reminder agree
+    on who counts. `winner` is the top *raw* score on that challenge (weight is
+    constant within one challenge, so weighting can't reorder it); an exact tie
+    lists every tied name. `played`/`roster` give the "3/5" count, `missing` the
+    names who skipped it, sorted case-insensitively.
+    # ponytail: like weekly_leaderboard, the filter is >= Monday with no upper
+    # bound, so a historical `today` relies on `data` already being windowed past
+    # it (which it is: the stats page windows to the season)."""
+    data = data if data is not None else _load()
+    start = week_start(today)
+
+    names: dict[str, str] = {}            # player key -> latest display name
+    by_token: dict[str, list[dict]] = {}  # token -> this week's scores
+    for s in data["scores"]:
+        if date.fromisoformat(s["date"]) < start:
+            continue
+        key = s["user_id"] or s["name"]
+        names[key] = s["name"]
+        by_token.setdefault(s["token"], []).append(s)
+
+    rows = []
+    for c in data["challenges"]:
+        if date.fromisoformat(c["date"]) < start:
+            continue
+        scores = by_token.get(c["token"], [])
+        top = max((s["score"] for s in scores), default=None)
+        winners = [s for s in scores if s["score"] == top]
+        played = {s["user_id"] or s["name"] for s in scores}
+        rows.append(
+            {
+                "date": c["date"],
+                "map": c.get("map") or "normal",
+                "url": c.get("url") or "",
+                "winner": ", ".join(sorted((s["name"] for s in winners), key=str.lower)),
+                "winner_score": top if top is not None else 0,
+                "winner_pin": winners[0].get("pin") if len(winners) == 1 else None,
+                "played": len(played),
+                "roster": len(names),
+                "missing": sorted(
+                    (names[k] for k in names if k not in played), key=str.lower
+                ),
+            }
+        )
+    # two stable passes: day desc, and within a day the games in name order
+    rows.sort(key=lambda r: r["map"])
+    rows.sort(key=lambda r: r["date"], reverse=True)
+    return rows
+
+
 PODIUM = [4, 2, 1]  # points for a week's 1st, 2nd, 3rd
 
 
@@ -548,6 +603,46 @@ if __name__ == "__main__":  # python -m geobot.store — self-check
     assert players_not_played_today(npt, "2026-07-24") == ["B", "C"], \
         players_not_played_today(npt, "2026-07-24")
     assert players_not_played_today(npt, "2026-07-25") == []  # no challenges that day
+
+    # weekly_challenges: same roster rule, but per challenge. Week Mon = 2026-07-20,
+    # so "old" (07-19) is out and D — who only played then — isn't on the roster.
+    wc = {
+        "challenges": [
+            {"token": "n1", "date": "2026-07-24", "url": "http://c/n1", "map": "normal"},
+            {"token": "f1", "date": "2026-07-24", "url": "http://c/f1", "map": "fast"},
+            {"token": "z1", "date": "2026-07-22", "url": "", "map": "normal"},  # unplayed
+            {"token": "n0", "date": "2026-07-21", "url": "", "map": "normal"},
+            {"token": "old", "date": "2026-07-19", "url": "", "map": "normal"},  # last week
+        ],
+        "scores": [
+            {"date": "2026-07-24", "token": "n1", "user_id": "a", "name": "A", "score": 9000,
+             "pin": "p/a.png"},
+            {"date": "2026-07-24", "token": "n1", "user_id": "b", "name": "B", "score": 8000},
+            {"date": "2026-07-24", "token": "f1", "user_id": "a", "name": "A", "score": 5000},
+            {"date": "2026-07-24", "token": "f1", "user_id": "b", "name": "B", "score": 5000},
+            {"date": "2026-07-21", "token": "n0", "user_id": "c", "name": "C", "score": 100},
+            {"date": "2026-07-19", "token": "old", "user_id": "d", "name": "D", "score": 1},
+        ],
+    }
+    wcr = weekly_challenges(wc, date(2026, 7, 24))
+    # day desc, game name asc within a day; last week's challenge dropped
+    assert [(r["date"], r["map"]) for r in wcr] == [
+        ("2026-07-24", "fast"), ("2026-07-24", "normal"),
+        ("2026-07-22", "normal"), ("2026-07-21", "normal"),
+    ], wcr
+    assert all(r["roster"] == 3 for r in wcr), wcr      # A, B, C — not D
+    # exact tie lists both names and drops the avatar (no single winner to show)
+    assert wcr[0]["winner"] == "A, B" and wcr[0]["winner_score"] == 5000, wcr[0]
+    assert wcr[0]["winner_pin"] is None, wcr[0]
+    assert wcr[0]["played"] == 2 and wcr[0]["missing"] == ["C"], wcr[0]
+    # clear winner keeps their pin; url comes straight off the challenge
+    assert wcr[1]["winner"] == "A" and wcr[1]["winner_score"] == 9000, wcr[1]
+    assert wcr[1]["winner_pin"] == "p/a.png" and wcr[1]["url"] == "http://c/n1", wcr[1]
+    # nobody played it: no winner, 0/3, everyone missing
+    assert wcr[2]["winner"] == "" and wcr[2]["winner_score"] == 0, wcr[2]
+    assert wcr[2]["played"] == 0 and wcr[2]["missing"] == ["A", "B", "C"], wcr[2]
+    assert wcr[3]["winner"] == "C" and wcr[3]["missing"] == ["A", "B"], wcr[3]
+    assert weekly_challenges(wc, date(2026, 8, 4)) == []  # a week with nothing in it
 
     # guess-derived stats: per-player aggregates, countries, round wins, and
     # graceful degradation on a legacy row that has no guesses/countries.
