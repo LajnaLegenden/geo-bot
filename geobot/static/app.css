@@ -120,6 +120,13 @@ code { background: #11141d; border: 1px solid var(--border); border-radius: 5px;
 .hint { color: var(--muted); font-size: .8rem; margin: -.25rem 0 .5rem; }
 @media (max-width: 640px) { .grid.stats { grid-template-columns: 1fr; } }
 
+/* 🗓️ This week's challenges: one table per day under its own heading. The last
+   column is a list of names, so it opts out of the global right-align that the
+   numeric stat columns want. */
+.challenges h3 { margin: 1.1rem 0 .4rem; font-size: .9rem; color: var(--muted); }
+.challenges h3:first-child { margin-top: 0; }
+.challenges td:nth-child(4), .challenges th:nth-child(4) { text-align: left; }
+
 /* Season switcher in a page-head — sits beside the title, not under it. */
 .season-pick { display: flex; align-items: center; gap: .4rem; margin: 0; }
 .season-pick label { display: flex; align-items: center; gap: .4rem; margin: 0; }
