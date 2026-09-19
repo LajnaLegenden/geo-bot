@@ -227,6 +227,56 @@ def weekly_challenges(data: dict | None = None, today: date | None = None) -> li
     return rows
 
 
+CHART_PLAYERS = 8  # series the week-progress chart draws; the rest are counted, not drawn
+
+
+def weekly_progress(data: dict | None = None, today: date | None = None) -> dict:
+    """The displayed week as a running total, for the 📈 chart:
+    {'days': [iso, ...], 'players': [{'name', 'totals': [...]}], 'hidden': n}.
+
+    Same window and weighting as weekly_leaderboard, so a player's last point *is*
+    their 🏆 total — the chart beside that board can't disagree with it. `totals`
+    has one entry per day and carries flat across a day someone skipped. Days run
+    Monday → the later of the reference day and the week's last scored day (so a
+    finished season's final week doesn't trail empty days). Players come back
+    best-last-total first, cut to CHART_PLAYERS with the remainder in 'hidden'.
+    # ponytail: the score filter is >= Monday with no upper bound, exactly as in
+    # weekly_leaderboard — which is what keeps the two totals equal — so a
+    # historical `today` relies the same way on `data` already being windowed."""
+    data = data if data is not None else _load()
+    start = week_start(today)
+    weight = _token_weight(data)
+    scores = [s for s in data["scores"] if date.fromisoformat(s["date"]) >= start]
+    if not scores:
+        return {"days": [], "players": [], "hidden": 0}
+
+    end = max([date.fromisoformat(s["date"]) for s in scores] + [today or date.today()])
+    days = [start + timedelta(days=i) for i in range((end - start).days + 1)]
+    col = {d.isoformat(): i for i, d in enumerate(days)}
+
+    names: dict[str, str] = {}            # player key -> latest display name
+    daily: dict[str, list[float]] = {}    # player key -> weighted points per day
+    for s in scores:
+        key = s["user_id"] or s["name"]
+        names[key] = s["name"]
+        row = daily.setdefault(key, [0.0] * len(days))
+        row[col[s["date"]]] += min(s["score"] * weight.get(s["token"], 1.0), MAX_SCORE)
+
+    players = []
+    for key, row in daily.items():
+        running, totals = 0.0, []
+        for v in row:
+            running += v
+            totals.append(round(running))
+        players.append({"name": names[key], "totals": totals})
+    players.sort(key=lambda p: p["totals"][-1], reverse=True)
+    return {
+        "days": [d.isoformat() for d in days],
+        "players": players[:CHART_PLAYERS],
+        "hidden": max(0, len(players) - CHART_PLAYERS),
+    }
+
+
 PODIUM = [4, 2, 1]  # points for a week's 1st, 2nd, 3rd
 
 
@@ -643,6 +693,22 @@ if __name__ == "__main__":  # python -m geobot.store — self-check
     assert wcr[2]["played"] == 0 and wcr[2]["missing"] == ["A", "B", "C"], wcr[2]
     assert wcr[3]["winner"] == "C" and wcr[3]["missing"] == ["A", "B"], wcr[3]
     assert weekly_challenges(wc, date(2026, 8, 4)) == []  # a week with nothing in it
+
+    # weekly_progress: same week + weighting as the board beside it, one running
+    # total per day. Week Mon = 2026-07-20, last score 07-24 -> Mon..Fri.
+    wp = weekly_progress(wc, date(2026, 7, 24))
+    assert wp["days"] == ["2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23",
+                          "2026-07-24"], wp["days"]
+    prog = {p["name"]: p["totals"] for p in wp["players"]}
+    assert prog["A"] == [0, 0, 0, 0, 14000], prog          # both of Friday's games
+    assert prog["B"] == [0, 0, 0, 0, 13000], prog
+    assert prog["C"] == [0, 100, 100, 100, 100], prog      # carries flat after Tuesday
+    assert [p["name"] for p in wp["players"]] == ["A", "B", "C"], wp  # best last total first
+    assert wp["hidden"] == 0, wp
+    # the last point *is* the 🏆 board's total, by construction
+    assert {r["name"]: r["total"] for r in weekly_leaderboard(wc, date(2026, 7, 24))} == \
+        {n: t[-1] for n, t in prog.items()}
+    assert weekly_progress(wc, date(2026, 8, 4)) == {"days": [], "players": [], "hidden": 0}
 
     # guess-derived stats: per-player aggregates, countries, round wins, and
     # graceful degradation on a legacy row that has no guesses/countries.
