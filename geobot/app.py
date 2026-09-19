@@ -26,6 +26,30 @@ def create_app() -> Flask:
     app.config["SECRET_KEY"] = key
     app.config.update(SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_HTTPONLY=True)
 
+    # Deploys have to reach open tabs. The origin sends no Cache-Control of its
+    # own, so Cloudflare applies its 4h default to /static/* — new markup could
+    # then be styled by an old stylesheet for hours. Fingerprint every static URL
+    # with the file's mtime (so a deploy changes the URL, busting browser *and*
+    # edge cache) and let the pages themselves say they're never storable.
+    app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 31_536_000  # a year; the URL is versioned
+
+    @app.url_defaults
+    def _version_static(endpoint, values):
+        if endpoint == "static" and "filename" in values and "v" not in values:
+            try:
+                values["v"] = int(os.stat(
+                    os.path.join(app.static_folder, values["filename"])).st_mtime)
+            except OSError:
+                pass  # missing file: let url_for build the plain URL and 404 loudly
+
+    @app.after_request
+    def _no_store_html(resp):
+        # Pages are per-session and per-league state, and htmx fragments are
+        # polled — neither should ever come back from a cache.
+        if resp.mimetype == "text/html":
+            resp.headers.setdefault("Cache-Control", "no-store")
+        return resp
+
     @app.before_request
     def _csrf_protect():
         if request.method in ("POST", "PUT", "PATCH", "DELETE"):
