@@ -120,6 +120,38 @@ code { background: #11141d; border: 1px solid var(--border); border-radius: 5px;
 .hint { color: var(--muted); font-size: .8rem; margin: -.25rem 0 .5rem; }
 @media (max-width: 640px) { .grid.stats { grid-template-columns: 1fr; } }
 
+/* 📈 Week progress: an inline-SVG running-total line per player, scaled to the
+   card. Series colours are set per element in stats_html (the validated palette);
+   only the recessive furniture lives here. The key under the chart carries the
+   names, so a colour is never the only thing telling two players apart. */
+.weekchart { position: relative; }
+.weekchart svg { display: block; width: 100%; height: auto; overflow: visible;
+  touch-action: pan-y; }
+.weekchart .grid { stroke: var(--border); stroke-width: 1; }
+.weekchart .axis { fill: var(--muted); font-size: 10px; }
+.chart-key {
+  list-style: none; margin: .7rem 0 0; padding: 0; font-size: .85rem;
+  display: flex; flex-wrap: wrap; gap: .2rem .9rem;
+}
+.chart-key li { display: flex; align-items: center; gap: .35rem; }
+.chart-key .swatch, .chart-tip .swatch { width: .62rem; height: .62rem; border-radius: 2px; flex: none; }
+.chart-key b { color: var(--muted); font-weight: 600; }
+
+/* The hover layer weekchart.js drives: a crosshair on the nearest day and a
+   tooltip listing everyone's running total for it, best first. Both are inert
+   markup until the script moves them, so no-JS readers just don't see them. */
+.weekchart .cross { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3;
+  display: none; pointer-events: none; }
+.chart-tip {
+  position: absolute; z-index: 2; pointer-events: none;
+  background: #11141d; border: 1px solid var(--border); border-radius: 8px;
+  padding: .4rem .55rem; font-size: .8rem; line-height: 1.45; white-space: nowrap;
+  box-shadow: 0 6px 18px #0009;
+}
+.chart-tip .tip-day { color: var(--muted); font-weight: 600; margin-bottom: .15rem; }
+.chart-tip .tip-row { display: flex; align-items: center; gap: .4rem; }
+.chart-tip .tip-row b { margin-left: auto; padding-left: .8rem; font-variant-numeric: tabular-nums; }
+
 /* 🗓️ This week's challenges: one table per day under its own heading. The last
    column is a list of names, so it opts out of the global right-align that the
    numeric stat columns want. */

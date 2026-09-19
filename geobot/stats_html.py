@@ -5,6 +5,7 @@ functions over one league's data (queries.load_league_data). htmx polls them.
 from __future__ import annotations
 
 import html
+import json
 from datetime import date
 
 from . import store
@@ -101,6 +102,117 @@ def _challenges_html(rows: list[dict]) -> str:
             f"<td>{r['played']}/{r['roster']}</td><td>{missing}</td></tr>"
         )
     out.append("</tbody></table></div>")
+    return "".join(out)
+
+
+# 📈 Week progress: the eight categorical slots of the default data-viz palette,
+# dark-surface steps, in the published order — that order is what keeps *adjacent*
+# series separable for colorblind readers, so don't reshuffle it. Re-validated
+# against this app's card surface (#1a1d29): worst adjacent ΔE 8.4 (CVD) / 19.3
+# (normal vision), every slot ≥ 3:1 contrast. Past 8 players store.weekly_progress
+# stops handing us series and counts the rest instead.
+SERIES_COLORS = ["#3987e5", "#d95926", "#199e70", "#c98500",
+                 "#d55181", "#008300", "#9085e9", "#e66767"]
+
+# viewBox units; the card scales the whole thing to its own width.
+CW, CH = 360, 190
+PAD_L, PAD_R, PAD_T, PAD_B = 44, 10, 10, 22
+PLOT_W, PLOT_H = CW - PAD_L - PAD_R, CH - PAD_T - PAD_B
+
+
+def _kfmt(v: int) -> str:
+    return f"{v / 1000:g}k" if v >= 1000 else str(v)
+
+
+def _y_axis(top: int) -> tuple[int, int]:
+    """(axis max, gridline step) for a 0-based axis: a round step that lands 2-5
+    gridlines above zero and a max at or just past `top`."""
+    if top < 1:
+        return 1, 1
+    mag = 10 ** (len(str(top)) - 1)
+    for mult in (0.25, 0.5, 1, 2, 5):
+        step = int(mag * mult) or 1
+        if top / step <= 5:
+            return step * -(-top // step), step
+    return top, top
+
+
+def _weekchart_html(prog: dict) -> str:
+    """One running-total line per player across the displayed week. Inline SVG —
+    no chart library, same server-rendered fragment deal as every other board.
+    The key underneath names each player next to their swatch, so identity never
+    rests on colour alone, and the 🏆 board beside it is the table view of the
+    very same numbers (the last point of each line).
+
+    weekchart.js turns the day columns into a crosshair + tooltip; everything it
+    needs is markup it reads back off this SVG (`data-x`/`data-days` on the root,
+    `data-day`/`data-name`/`data-value` per dot), so an htmx swap can't
+    de-synchronise the two. Without JS the per-dot <title> is still the tooltip."""
+    days, players = prog["days"], prog["players"]
+    if not players:
+        return "<p>No scores yet.</p>"
+
+    ymax, step = _y_axis(max(p["totals"][-1] for p in players))
+    n = len(days)
+    labels = [date.fromisoformat(d).strftime("%a") for d in days]
+    titles = [date.fromisoformat(d).strftime("%a %d %b") for d in days]
+
+    def x(i: int) -> float:
+        return round(PAD_L + (PLOT_W * i / (n - 1) if n > 1 else PLOT_W / 2), 1)
+
+    def y(v: int) -> float:
+        return round(PAD_T + PLOT_H * (1 - v / ymax), 1)
+
+    out = [
+        "<div class='weekchart'>",
+        f"<svg viewBox='0 0 {CW} {CH}' role='img' aria-label='Running weekly "
+        "points per player' "
+        f"data-x='{json.dumps([x(i) for i in range(n)])}' "
+        f"data-days='{html.escape(json.dumps(titles))}'>",
+    ]
+    for v in range(0, ymax + 1, step):  # gridlines + their y labels
+        out.append(
+            f"<line class='grid' x1='{PAD_L}' y1='{y(v)}' x2='{CW - PAD_R}' y2='{y(v)}'/>"
+            f"<text class='axis' x='{PAD_L - 6}' y='{y(v) + 3}' text-anchor='end'>"
+            f"{_kfmt(v)}</text>"
+        )
+    for i, lab in enumerate(labels):  # day labels along the bottom
+        out.append(
+            f"<text class='axis' x='{x(i)}' y='{CH - 6}' text-anchor='middle'>{lab}</text>"
+        )
+    # The hover crosshair, parked at x=0 and hidden until weekchart.js moves it.
+    # It sits under the series so a line is never cut in half by it.
+    out.append(
+        f"<line class='cross' x1='0' y1='{PAD_T}' x2='0' y2='{PAD_T + PLOT_H}'/>"
+    )
+    for s, p in enumerate(players):
+        colour = SERIES_COLORS[s % len(SERIES_COLORS)]
+        pts = " ".join(f"{x(i)},{y(v)}" for i, v in enumerate(p["totals"]))
+        out.append(
+            f"<polyline points='{pts}' fill='none' stroke='{colour}' stroke-width='2' "
+            "stroke-linecap='round' stroke-linejoin='round'/>"
+        )
+        # A dot per day, ringed in the card colour so crossing lines stay readable.
+        # The data-* trio is what the tooltip reads; the <title> is the no-JS
+        # fallback, which weekchart.js strips once it takes over.
+        for i, v in enumerate(p["totals"]):
+            out.append(
+                f"<circle cx='{x(i)}' cy='{y(v)}' r='3' fill='{colour}' "
+                "stroke='var(--surface)' stroke-width='1.2' "
+                f"data-day='{i}' data-name='{html.escape(p['name'])}' data-value='{v}'>"
+                f"<title>{html.escape(p['name'])} · {titles[i]} · {v:,}</title></circle>"
+            )
+    out.append("</svg><div class='chart-tip' hidden></div><ul class='chart-key'>")
+    for s, p in enumerate(players):
+        out.append(
+            f"<li><span class='swatch' style='background:"
+            f"{SERIES_COLORS[s % len(SERIES_COLORS)]}'></span>"
+            f"{html.escape(p['name'])} <b>{p['totals'][-1]:,}</b></li>"
+        )
+    out.append("</ul>")
+    if prog["hidden"]:
+        out.append(f"<p class='hint'>+{prog['hidden']} more not shown.</p>")
+    out.append("</div>")
     return "".join(out)
 
 
@@ -218,6 +330,7 @@ def _roundwins_html(rows: list[dict]) -> str:
 FRAGMENTS = {
     "weekly": lambda d, t: _board_html(store.weekly_leaderboard(d, t)),
     "challenges": lambda d, t: _challenges_html(store.weekly_challenges(d, t)),
+    "weekchart": lambda d, t: _weekchart_html(store.weekly_progress(d, t)),
     "season": lambda d, t: _season_html(store.season_leaderboard(d)),
     "alltime": lambda d, t: _board_html(store.all_time_leaderboard(d)),
     "maps": lambda d, t: _maps_html(store.map_stats(d)),
@@ -255,4 +368,25 @@ if __name__ == "__main__":  # python -m geobot.stats_html — self-check
     assert "<td>2/3</td>" in ch and "<td>0/3</td>" in ch, ch
     assert "A, B, C" in ch, ch                        # everyone missing, unplayed day
     assert _challenges_html([]) == "<p>No challenges this week.</p>"
+    # week-progress chart: axis rounds up to a round step, one polyline + one
+    # dot per day per player, and a key entry carrying the final total.
+    assert _y_axis(45_000) == (50_000, 10_000) and _y_axis(3_000) == (3_000, 1_000)
+    assert _y_axis(12_000) == (12_500, 2_500) and _y_axis(0) == (1, 1)
+    wc = _weekchart_html({
+        "days": ["2026-07-20", "2026-07-21", "2026-07-22"],
+        "players": [{"name": "A <b>", "totals": [1000, 1000, 3000]},
+                    {"name": "B", "totals": [0, 500, 900]}],
+        "hidden": 2,
+    })
+    assert wc.count("<polyline") == 2 and wc.count("<circle") == 6, wc
+    assert "A &lt;b&gt;" in wc and "<b>3,000</b>" in wc, wc   # escaped name, final total
+    assert SERIES_COLORS[1] in wc and ">Mon<" in wc and ">Wed<" in wc, wc
+    assert "+2 more not shown." in wc, wc
+    # the hover layer's contract with weekchart.js: day x-positions + labels on
+    # the root, a parked crosshair, an empty tooltip box, and a data trio per dot
+    assert "data-x='[44.0, 197.0, 350.0]'" in wc and "Mon 20 Jul" in wc, wc
+    assert "<line class='cross'" in wc and "<div class='chart-tip' hidden>" in wc, wc
+    assert wc.count("data-day=") == 6 and "data-value='3000'" in wc, wc
+    assert _weekchart_html({"days": [], "players": [], "hidden": 0}) == "<p>No scores yet.</p>"
+
     print("stats_html ok")

@@ -4,6 +4,7 @@
    sort.js reads data-sort-col/dir off the box and applies it on load + each poll. #}
 {% set STAT_SECTIONS = [
   ('weekly',    '🏆 This week',              2, -1),
+  ('weekchart', '📈 Week progress',           none, none),
   ('challenges','🗓️ This week\'s challenges', none, none),
   ('season',    '🏅 Season points',          3, -1),
   ('alltime',   '👑 All-time',               2, -1),
@@ -19,6 +20,7 @@
 {% set FINAL_HEADINGS = {
   'weekly':     '🏆 Final week',
   'challenges': '🗓️ Final week\'s challenges',
+  'weekchart':  '📈 Final week progress',
 } %}
 {# Season switching is a plain GET form to the current URL — the ?season= it sets
    is also threaded into every fragment URL below, so the 60s htmx polls stay on
