@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import html
 import json
-from datetime import date
+from datetime import date, datetime
 
 from . import store
 
@@ -144,21 +144,43 @@ def _weekchart_html(prog: dict) -> str:
     rests on colour alone, and the 🏆 board beside it is the table view of the
     very same numbers (the last point of each line).
 
-    weekchart.js turns the day columns into a crosshair + tooltip; everything it
-    needs is markup it reads back off this SVG (`data-x`/`data-days` on the root,
-    `data-day`/`data-name`/`data-value` per dot), so an htmx swap can't
-    de-synchronise the two. Without JS the per-dot <title> is still the tooltip."""
+    weekchart.js turns the point columns into a crosshair + tooltip; everything
+    it needs is markup it reads back off this SVG (`data-x`/`data-days` on the
+    root, `data-day`/`data-name`/`data-value` per dot), so an htmx swap can't
+    de-synchronise the two. Without JS the per-dot <title> is still the tooltip.
+
+    `prog['days']` is read as a timestamp per point (a bare date parses as that
+    day's midnight), and points sit at x proportional to real elapsed time
+    between the first and last — two challenges 4h apart sit close together;
+    a day with nothing posted leaves a real gap. The axis label below a point
+    only repeats the date when it's the first point of a new day; same-day
+    points after it just get their time, so multi-challenge days don't show
+    the same weekday three times in a row."""
     days, players = prog["days"], prog["players"]
     if not players:
         return "<p>No scores yet.</p>"
 
     ymax, step = _y_axis(max(p["totals"][-1] for p in players))
     n = len(days)
-    labels = [date.fromisoformat(d).strftime("%a") for d in days]
-    titles = [date.fromisoformat(d).strftime("%a %d %b") for d in days]
+    times = [datetime.fromisoformat(d) for d in days]
+    titles = [t.strftime("%a %d %b %H:%M") for t in times]
+    labels, prev_date = [], None
+    for t in times:
+        if t.date() != prev_date:
+            labels.append(t.strftime("%a %d"))
+            prev_date = t.date()
+        else:
+            labels.append(t.strftime("%H:%M"))
+
+    span = (times[-1] - times[0]).total_seconds() if n > 1 else 0
 
     def x(i: int) -> float:
-        return round(PAD_L + (PLOT_W * i / (n - 1) if n > 1 else PLOT_W / 2), 1)
+        if n <= 1:
+            return round(PAD_L + PLOT_W / 2, 1)
+        if span <= 0:  # degenerate: every point shares a timestamp
+            return round(PAD_L + PLOT_W * i / (n - 1), 1)
+        frac = (times[i] - times[0]).total_seconds() / span
+        return round(PAD_L + PLOT_W * frac, 1)
 
     def y(v: int) -> float:
         return round(PAD_T + PLOT_H * (1 - v / ymax), 1)
@@ -369,7 +391,7 @@ if __name__ == "__main__":  # python -m geobot.stats_html — self-check
     assert "A, B, C" in ch, ch                        # everyone missing, unplayed day
     assert _challenges_html([]) == "<p>No challenges this week.</p>"
     # week-progress chart: axis rounds up to a round step, one polyline + one
-    # dot per day per player, and a key entry carrying the final total.
+    # dot per challenge per player, and a key entry carrying the final total.
     assert _y_axis(45_000) == (50_000, 10_000) and _y_axis(3_000) == (3_000, 1_000)
     assert _y_axis(12_000) == (12_500, 2_500) and _y_axis(0) == (1, 1)
     wc = _weekchart_html({
@@ -380,13 +402,27 @@ if __name__ == "__main__":  # python -m geobot.stats_html — self-check
     })
     assert wc.count("<polyline") == 2 and wc.count("<circle") == 6, wc
     assert "A &lt;b&gt;" in wc and "<b>3,000</b>" in wc, wc   # escaped name, final total
-    assert SERIES_COLORS[1] in wc and ">Mon<" in wc and ">Wed<" in wc, wc
+    assert SERIES_COLORS[1] in wc and ">Mon 20<" in wc and ">Wed 22<" in wc, wc
     assert "+2 more not shown." in wc, wc
-    # the hover layer's contract with weekchart.js: day x-positions + labels on
-    # the root, a parked crosshair, an empty tooltip box, and a data trio per dot
-    assert "data-x='[44.0, 197.0, 350.0]'" in wc and "Mon 20 Jul" in wc, wc
+    # the hover layer's contract with weekchart.js: x-positions + labels on the
+    # root, a parked crosshair, an empty tooltip box, and a data trio per dot.
+    # A bare date reads as that day's midnight, and 3 days apart evenly (24h
+    # each) still lands on the old evenly-spaced positions.
+    assert "data-x='[44.0, 197.0, 350.0]'" in wc and "Mon 20 Jul 00:00" in wc, wc
     assert "<line class='cross'" in wc and "<div class='chart-tip' hidden>" in wc, wc
     assert wc.count("data-day=") == 6 and "data-value='3000'" in wc, wc
+
+    # two challenges the same day (10:00 and 14:00) sit proportionally 4h apart
+    # in a 24h span (1/6 of the plot width), not merged into one day-point; the
+    # second axis label drops the repeated date and shows just the time.
+    wc2 = _weekchart_html({
+        "days": ["2026-07-20T10:00:00", "2026-07-20T14:00:00", "2026-07-21T10:00:00"],
+        "players": [{"name": "A", "totals": [1000, 1500, 1500]}],
+        "hidden": 0,
+    })
+    assert ">Mon 20<" in wc2 and ">14:00<" in wc2 and ">Tue 21<" in wc2, wc2
+    assert "data-x='[44.0, 95.0, 350.0]'" in wc2, wc2
+    assert "Mon 20 Jul 14:00" in wc2, wc2
     assert _weekchart_html({"days": [], "players": [], "hidden": 0}) == "<p>No scores yet.</p>"
 
     print("stats_html ok")
