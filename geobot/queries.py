@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from . import db
+from . import cron_builder, db
 
 
 # --- users / auth -----------------------------------------------------------
@@ -425,6 +425,12 @@ def load_league_data(conn, league_id, since=None, until=None) -> dict:
     composite because games are per-season: two seasons' "normal" only share a
     Maps row when they were played on the same GeoGuessr map.
 
+    `posted_at` reconstructs the challenge's real post time from its game's
+    `cron_challenge` (the scheduler already fires that cron in the league's own
+    tz — see scheduler.py's _trigger — so `date` + the cron's hour:minute is the
+    actual local post time, no separate timestamp column needed). It drifts only
+    if a game's schedule was edited after the challenge posted.
+
     `since`/`until` are optional ISO dates narrowing it to one season (`until`
     exclusive, i.e. the next season's `starts_on`) — see season_window(). Both
     default to None = the league's whole history, so every stat function becomes
@@ -436,19 +442,24 @@ def load_league_data(conn, league_id, since=None, until=None) -> dict:
         window, args = window + " AND {p}date>=?", args + [since]
     if until:
         window, args = window + " AND {p}date<?", args + [until]
-    challenges = [
-        {"token": r["token"], "date": r["date"], "url": r["url"],
-         "countries": json.loads(r["countries"]) if r["countries"] else None,
-         "weight": r["weight"], "map": f"{r['game_name']} · {r['map_name']}"}
-        for r in conn.execute(
-            "SELECT c.token, c.date, c.url, c.countries, g.weight, g.name AS game_name, "
-            "       m.name AS map_name "
-            "FROM challenges c JOIN games g ON g.id=c.game_id "
-            "JOIN maps m ON m.id=g.map_ref "
-            "WHERE c.league_id=?" + window.format(p="c.") + " ORDER BY c.date",
-            args,
+    challenges = []
+    for r in conn.execute(
+        "SELECT c.token, c.date, c.url, c.countries, g.weight, g.cron_challenge, "
+        "       g.name AS game_name, m.name AS map_name "
+        "FROM challenges c JOIN games g ON g.id=c.game_id "
+        "JOIN maps m ON m.id=g.map_ref "
+        "WHERE c.league_id=?" + window.format(p="c.") + " ORDER BY c.date",
+        args,
+    ):
+        t = cron_builder.parse_cron(r["cron_challenge"])
+        challenges.append(
+            {
+                "token": r["token"], "date": r["date"], "url": r["url"],
+                "countries": json.loads(r["countries"]) if r["countries"] else None,
+                "weight": r["weight"], "map": f"{r['game_name']} · {r['map_name']}",
+                "posted_at": f"{r['date']}T{t['hour']:02d}:{t['minute']:02d}:00",
+            }
         )
-    ]
     scores = [
         {"token": r["token"], "date": r["date"], "user_id": r["user_id"],
          "name": r["name"], "score": r["score"], "pin": r["pin"],
@@ -536,5 +547,8 @@ if __name__ == "__main__":  # python -m geobot.queries — self-check (in-memory
     ch = load_league_data(c, lid)["challenges"][0]
     assert ch["weight"] == 1.0, "a played season keeps the weight it was played with"
     assert ch["map"] == "normal · m", "Maps key is game + map, so a swapped map splits"
+    # posted_at reconstructs from the game's own cron ('0 9 * * mon' -> 09:00),
+    # not a stored timestamp — no separate column for it.
+    assert ch["posted_at"] == "2026-07-01T09:00:00", ch
 
     print("queries ok")

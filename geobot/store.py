@@ -234,33 +234,48 @@ def weekly_progress(data: dict | None = None, today: date | None = None) -> dict
     """The displayed week as a running total, for the 📈 chart:
     {'days': [iso, ...], 'players': [{'name', 'totals': [...]}], 'hidden': n}.
 
+    One point per *challenge*, not per calendar day — a day is often more than
+    one game, and collapsing them into a single day-point hid that. Columns run
+    in real post-time order via each challenge's `posted_at` (queries.py derives
+    it from the game's cron, so 10:00 and 14:00 the same day land as two
+    distinct, correctly-ordered points) — falls back to the day-only `date` for
+    older/hand-built data that lacks it. `days` carries whichever of the two won,
+    so the same value can repeat across adjacent points. `_weekchart_html` reads
+    it as a timestamp (bare dates parse as that day's midnight) and positions
+    points proportionally along real elapsed time, not by index.
+
     Same window and weighting as weekly_leaderboard, so a player's last point *is*
     their 🏆 total — the chart beside that board can't disagree with it. `totals`
-    has one entry per day and carries flat across a day someone skipped. Days run
-    Monday → the later of the reference day and the week's last scored day (so a
-    finished season's final week doesn't trail empty days). Players come back
-    best-last-total first, cut to CHART_PLAYERS with the remainder in 'hidden'.
-    # ponytail: the score filter is >= Monday with no upper bound, exactly as in
-    # weekly_leaderboard — which is what keeps the two totals equal — so a
-    # historical `today` relies the same way on `data` already being windowed."""
+    has one entry per challenge and carries flat across one someone skipped.
+    Players come back best-last-total first, cut to CHART_PLAYERS with the
+    remainder in 'hidden'.
+    # ponytail: the score filter is by token membership in the windowed
+    # challenges, not by score date directly — equivalent since a score's date
+    # is always copied from its challenge's, but it's what lets a score map onto
+    # its column without a second date parse."""
     data = data if data is not None else _load()
     start = week_start(today)
     weight = _token_weight(data)
-    scores = [s for s in data["scores"] if date.fromisoformat(s["date"]) >= start]
-    if not scores:
+    challenges = sorted(
+        (c for c in data["challenges"] if date.fromisoformat(c["date"]) >= start),
+        key=lambda c: c.get("posted_at") or c["date"],
+    )
+    if not challenges:
         return {"days": [], "players": [], "hidden": 0}
 
-    end = max([date.fromisoformat(s["date"]) for s in scores] + [today or date.today()])
-    days = [start + timedelta(days=i) for i in range((end - start).days + 1)]
-    col = {d.isoformat(): i for i, d in enumerate(days)}
+    col = {c["token"]: i for i, c in enumerate(challenges)}
+    days = [c.get("posted_at") or c["date"] for c in challenges]
 
     names: dict[str, str] = {}            # player key -> latest display name
-    daily: dict[str, list[float]] = {}    # player key -> weighted points per day
-    for s in scores:
+    daily: dict[str, list[float]] = {}    # player key -> weighted points per challenge
+    for s in data["scores"]:
+        i = col.get(s["token"])
+        if i is None:
+            continue
         key = s["user_id"] or s["name"]
         names[key] = s["name"]
-        row = daily.setdefault(key, [0.0] * len(days))
-        row[col[s["date"]]] += min(s["score"] * weight.get(s["token"], 1.0), MAX_SCORE)
+        row = daily.setdefault(key, [0.0] * len(challenges))
+        row[i] += min(s["score"] * weight.get(s["token"], 1.0), MAX_SCORE)
 
     players = []
     for key, row in daily.items():
@@ -271,7 +286,7 @@ def weekly_progress(data: dict | None = None, today: date | None = None) -> dict
         players.append({"name": names[key], "totals": totals})
     players.sort(key=lambda p: p["totals"][-1], reverse=True)
     return {
-        "days": [d.isoformat() for d in days],
+        "days": days,
         "players": players[:CHART_PLAYERS],
         "hidden": max(0, len(players) - CHART_PLAYERS),
     }
@@ -695,14 +710,15 @@ if __name__ == "__main__":  # python -m geobot.store — self-check
     assert weekly_challenges(wc, date(2026, 8, 4)) == []  # a week with nothing in it
 
     # weekly_progress: same week + weighting as the board beside it, one running
-    # total per day. Week Mon = 2026-07-20, last score 07-24 -> Mon..Fri.
+    # total per *challenge* (n0, z1, n1, f1 — chronological, n1 before f1 since
+    # both are 07-24 and n1 comes first in wc["challenges"]). "old" (07-19) drops.
     wp = weekly_progress(wc, date(2026, 7, 24))
-    assert wp["days"] == ["2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23",
-                          "2026-07-24"], wp["days"]
+    assert wp["days"] == ["2026-07-21", "2026-07-22", "2026-07-24", "2026-07-24"], \
+        wp["days"]
     prog = {p["name"]: p["totals"] for p in wp["players"]}
-    assert prog["A"] == [0, 0, 0, 0, 14000], prog          # both of Friday's games
-    assert prog["B"] == [0, 0, 0, 0, 13000], prog
-    assert prog["C"] == [0, 100, 100, 100, 100], prog      # carries flat after Tuesday
+    assert prog["A"] == [0, 0, 9000, 14000], prog           # n1 then f1, both Friday
+    assert prog["B"] == [0, 0, 8000, 13000], prog
+    assert prog["C"] == [100, 100, 100, 100], prog          # carries flat after n0
     assert [p["name"] for p in wp["players"]] == ["A", "B", "C"], wp  # best last total first
     assert wp["hidden"] == 0, wp
     # the last point *is* the 🏆 board's total, by construction
