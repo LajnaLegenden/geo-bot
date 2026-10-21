@@ -113,7 +113,8 @@ class GeoGuessr:
         players = []
         for item in items:
             player = item.get("game", {}).get("player", {})
-            amount = player.get("totalScore", {}).get("amount", 0)
+            # API renamed totalScore.amount (string) to totalScoreInPoints (int); keep old key as fallback
+            amount = player.get("totalScoreInPoints") or player.get("totalScore", {}).get("amount", 0)
             guesses = [
                 {
                     "pts": int(g.get("roundScoreInPoints") or 0),
@@ -130,7 +131,7 @@ class GeoGuessr:
                 {
                     "name": player.get("nick", "unknown"),
                     "user_id": player.get("id", ""),
-                    # ponytail: API returns amount as a string; coerce so the store stays numeric
+                    # ponytail: legacy amount was a string; coerce so the store stays numeric
                     "score": int(amount) if amount else 0,
                     "pin": player.get("pin", {}).get("url"),
                     "guesses": guesses,
