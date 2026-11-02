@@ -6,3 +6,4 @@ data/geobot.db
 data/geobot.db-wal
 data/geobot.db-shm
 data/thumbs/
+data/store.json
