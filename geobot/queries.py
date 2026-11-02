@@ -318,7 +318,7 @@ def season_window(conn, season_id, league_id) -> tuple[str | None, str | None]:
     """(since, until) date bounds for load_league_data — `until` exclusive.
 
     The *oldest* season gets since=None so it absorbs anything dated before it:
-    a league created today starts its Season 1 today, and MIGRATION.md's flow
+    a league created today starts its Season 1 today, and `geobot.import_store`
     imports history afterwards. Open-ended at the front means no score can fall
     into a gap between "before all seasons" and season 1."""
     row = conn.execute(
